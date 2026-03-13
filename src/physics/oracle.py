@@ -5,13 +5,81 @@ Description:
     This module serves as the 'Numerical Oracle'. It generates high-precision 
     ground truth data using numerical integration (Cowell's method).
     
-    NOTE: Built completely from scratch using SciPy's DOP853 integrator to 
+    NOTE: Built completely from scratch using SciPy's LSODA integrator to 
     ensure maximum stability, full transparency in the physics (Grey-Box), 
     and zero library-version dependencies.
 """
 
 import numpy as np
 from scipy.integrate import solve_ivp
+
+def ECI2COE(mu, rECI, vECI):
+    """
+    Converts Cartesian ECI (Earth-Centered Inertial) vectors to 
+    COE (Classical Orbit Elements).
+    
+    Inputs:
+        mu  : Gravitational parameter of the central body [m^3/s^2]
+        rECI: Position vector in ECI frame                      [m]
+        vECI: Velocity vector in ECI frame                    [m/s]
+        
+    Outputs:
+        SMA : Semi-Major Axis                                   [m]
+        ECC : Eccentricity                                      [-]
+        INC : Inclination                                     [rad]
+        RAAN: Right Ascension of the Ascending Node           [rad]
+        AOP : Argument of Periapsis                           [rad]
+        TA  : True Anomaly                                    [rad]
+    """
+    eps = 1e-10  # Tolerance for singularities
+    
+    r = np.linalg.norm(rECI)
+    v = np.linalg.norm(vECI)
+    
+    # 1. Angular Momentum
+    h_vec = np.cross(rECI, vECI)
+    h = np.linalg.norm(h_vec)
+    
+    # 2. Semi-Major Axis (SMA)
+    energy = (v**2 / 2.0) - (mu / r)
+    SMA = -mu / (2.0 * energy)
+    
+    # 3. Inclination (INC)
+    INC = np.arccos(np.clip(h_vec[2] / h, -1.0, 1.0))
+    
+    # 4. Node Vector and RAAN
+    n_vec = np.array([-h_vec[1], h_vec[0], 0.0])
+    n = np.linalg.norm(n_vec)
+    
+    if n < eps:
+        RAAN = 0.0 # Equatorial orbit singularity
+    else:
+        RAAN = np.arccos(np.clip(n_vec[0] / n, -1.0, 1.0))
+        if n_vec[1] < 0:
+            RAAN = 2.0 * np.pi - RAAN
+            
+    # 5. Eccentricity Vector and ECC
+    e_vec = (1.0 / mu) * ((v**2 - mu / r) * rECI - np.dot(rECI, vECI) * vECI)
+    ECC = np.linalg.norm(e_vec)
+    
+    # 6. Argument of Periapsis (AOP)
+    if n < eps or ECC < eps:
+        AOP = 0.0 # Circular or equatorial singularity
+    else:
+        AOP = np.arccos(np.clip(np.dot(n_vec, e_vec) / (n * ECC), -1.0, 1.0))
+        if e_vec[2] < 0:
+            AOP = 2.0 * np.pi - AOP
+            
+    # 7. True Anomaly (TA)
+    if ECC < eps:
+        TA = 0.0 # Circular orbit singularity
+    else:
+        TA = np.arccos(np.clip(np.dot(e_vec, rECI) / (ECC * r), -1.0, 1.0))
+        if np.dot(rECI, vECI) < 0:
+            TA = 2.0 * np.pi - TA
+            
+    return np.array([SMA, ECC, INC, RAAN, AOP, TA])
+
 
 def COE2ECI(mu, SMA, ECC, INC, RAAN, AOP, TA):
     """
@@ -53,6 +121,7 @@ def COE2ECI(mu, SMA, ECC, INC, RAAN, AOP, TA):
     
     return R @ rPQW, R @ vPQW
 
+
 def getGroundTruth(SMA, ECC, INC, RAAN, AOP, TA, TOF):
     """
     Computes a high-precision orbital state by numerically integrating 
@@ -73,10 +142,10 @@ def getGroundTruth(SMA, ECC, INC, RAAN, AOP, TA, TOF):
     """
     
     # Earth physical constants
-    MU   = 3.986004418e14   # Gravitational parameter       [m^3/s^2]
-    J2   =   1.082635854e-3 # J2 zonal harmonic coefficient       [-]
-    J3   = - 2.532435346e-6 # J3 zonal harmonic coefficient       [-]
-    R_EQ = 6378.137e3       # Equatorial radius                   [m]
+    MU   = 3.986004418e14    # Gravitational parameter       [m^3/s^2]
+    J2   =   1.082635854e-3  # J2 zonal harmonic coefficient       [-]
+    J3   = - 2.532435346e-6  # J3 zonal harmonic coefficient       [-]
+    R_EQ = 6378.137e3        # Equatorial radius                   [m]
     
     # Pre-compute perturbation constants to save computation time inside the ODE solver
     C_J2_PRE = -3/2 * J2 * MU * (R_EQ**2)

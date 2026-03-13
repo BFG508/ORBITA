@@ -8,11 +8,11 @@ Description:
 """
 
 import numpy as np
-from analytical import computeGeneralSolution
-from oracle import getGroundTruth, COE2ECI
-from kepler import getKeplerianNumerical
+from physics.analytical import computeGeneralSolution
+from physics.kepler     import getKeplerianNumerical
+from physics.oracle     import getGroundTruth, COE2ECI
 
-def compare_models():
+def compareModels():
     """
     Executes both the numerical and analytical propagation models for a given 
     initial state and time of flight, comparing their final states.
@@ -79,5 +79,9 @@ def compare_models():
     print("-" * 50)
     print("This is the error that the AI must learn to correct!")
 
+
+# =============================================================================
+# Execution Block
+# =============================================================================
 if __name__ == "__main__":
-    compare_models()
+    compareModels()
