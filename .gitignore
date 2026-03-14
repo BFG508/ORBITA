@@ -1,42 +1,20 @@
 # Python environments
-.env
-.venv
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
+.env/
+.venv/
+.ENV/
 
-# Byte-compiled / optimized / DLL files
+# Bytecode files
 __pycache__/
-*.py[cod]
-*$py.class
-
-# Jupyter Notebook
-.ipynb_checkpoints
-*/.ipynb_checkpoints/*
 
 # VS Code settings and workspace
 .vscode/
 
 # Data and Logs
-data/*
-!data/.gitkeep
-logs/
-*.log
+data/
 
 # DeepXDE / Machine Learning models
-models/*
-!models/.gitkeep
-*.h5
-*.pb
-*.ckpt
+models/
 
 # OS generated files
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db

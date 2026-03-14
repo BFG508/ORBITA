@@ -2,98 +2,122 @@
 Module: active_learning.py
 
 Description:
-    Defines the Neural Network architecture for predicting residual errors.
-    Implements Monte Carlo Dropout (MC-Dropout) to quantify prediction 
-    epistemic uncertainty, enabling the Active Learning loop to dynamically 
-    query the Numerical Oracle only when the AI is unsure of its prediction.
+    Contains the Deep Neural Network architecture (ResidualPredictor) used as 
+    the expert models in the ORBITA framework.
+    
+    Upgraded to a Deep Residual Architecture (ResNet-style) to handle the 
+    extreme non-linearities of the J2/J3 orbital perturbations at centimetric 
+    precision. Features MC-Dropout for epistemic uncertainty estimation.
 """
 
 import torch
 import torch.nn as nn
-import numpy as np
-from typing import Tuple
+
+class ResidualBlock(nn.Module):
+    """
+    Deep building block with skip connections.
+    Prevents the vanishing gradient problem, allowing for much deeper networks.
+    """
+    
+    def __init__(self, hidden_size, dropout_rate):
+        """
+        Initializes the residual block layers.
+        
+        Args:
+            hidden_size (int): Number of neurons in the hidden layers.
+            dropout_rate (float): Probability of an element to be zeroed.
+        """
+        super(ResidualBlock, self).__init__()
+        self.linear1 = nn.Linear(hidden_size, hidden_size)
+        self.act1    = nn.GELU()
+        self.drop1   = nn.Dropout(dropout_rate)
+        
+        self.linear2 = nn.Linear(hidden_size, hidden_size)
+        self.act2    = nn.GELU()
+        self.drop2   = nn.Dropout(dropout_rate)
+
+    def forward(self, x):
+        """
+        Forward pass with the residual skip connection.
+        """
+        identity = x  # Save original input for the skip connection
+        
+        out = self.linear1(x)
+        out = self.act1(out)
+        out = self.drop1(out)
+        
+        out = self.linear2(out)
+        out = self.act2(out)
+        out = self.drop2(out)
+        
+        # RESIDUAL ADDITION: Allows learning high-frequency non-linear features
+        return out + identity 
+
 
 class ResidualPredictor(nn.Module):
     """
-    Multi-Layer Perceptron (MLP) designed to predict the 6 Classical 
-    Orbital Element (COE) residual errors between the Analytical Baseline 
-    and the Numerical Oracle.
+    Main AI brain for the ORBITA MoE framework.
     
-    Target outputs: [err_SMA, err_ECC, err_INC, err_RAAN, err_AOP, err_TA]
+    Inputs: 8 variables (Initial MEE parameters + True Longitude components + TOF).
+    Outputs: 6 variables (Residual errors in MEE).
     """
     
-    def __init__(
-        self, 
-        input_size = 10, 
-        hidden_size = 512, 
-        output_size = 6, 
-        dropout_rate = 0.2
-    ):
+    def __init__(self, input_size=8, hidden_size=512, output_size=6, dropout_rate=0.001):
         """
-        Initializes the network architecture.
-        Note: input_size is 10 due to the trigonometric expansion (sines and cosines)
-        of the angular orbital elements to prevent 360-degree boundary issues.
+        Initializes the Deep Residual architecture.
+        
+        Args:
+            input_size (int): Number of input features (8 for stable MEE formulation).
+            hidden_size (int): Number of neurons per hidden layer.
+            output_size (int): Number of prediction targets.
+            dropout_rate (float): Dropout probability for regularization and MC-Dropout.
         """
         super(ResidualPredictor, self).__init__()
         
-        # Architecture definition using GELU for smoother physical regression
-        self.net = nn.Sequential(
+        # Input layer
+        self.input_layer = nn.Sequential(
             nn.Linear(input_size, hidden_size),
-            nn.GELU(),
-            nn.Dropout(p=dropout_rate),
-            
-            nn.Linear(hidden_size, hidden_size),
-            nn.GELU(),
-            nn.Dropout(p=dropout_rate),
-            
-            nn.Linear(hidden_size, hidden_size),
-            nn.GELU(),
-            nn.Dropout(p=dropout_rate),
-            
-            nn.Linear(hidden_size, output_size)
+            nn.GELU()
         )
+        
+        # The "Deep Core": 4 residual blocks (8 hidden layers total)
+        self.res_blocks = nn.Sequential(
+            ResidualBlock(hidden_size, dropout_rate),
+            ResidualBlock(hidden_size, dropout_rate),
+            ResidualBlock(hidden_size, dropout_rate),
+            ResidualBlock(hidden_size, dropout_rate)
+        )
+        
+        # Output layer
+        self.output_layer = nn.Linear(hidden_size, output_size)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x):
         """
         Standard forward pass through the network.
-        During standard evaluation, dropout layers are normally bypassed.
         """
-        return self.net(x)
+        x = self.input_layer(x)
+        x = self.res_blocks(x)
+        return self.output_layer(x)
 
-    def predict_with_uncertainty(
-        self, 
-        x: torch.Tensor, 
-        num_samples = 10
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def predict_with_uncertainty(self, x, num_samples=50):
         """
-        Performs Monte Carlo Dropout inference to estimate both the 
-        prediction value and its epistemic uncertainty.
+        Executes the model multiple times with Dropout active to 
+        extract the epistemic uncertainty cloud (MC-Dropout).
         
-        Inputs:
-            x           : Input tensor [SMA, ECC, INC, sin(RAAN), cos(RAAN), 
-                          sin(AOP), cos(AOP), sin(TA), cos(TA), TOF]
-            num_samples : Number of stochastic forward passes to execute
+        Args:
+            x (torch.Tensor): Input tensor.
+            num_samples (int): Number of stochastic forward passes.
             
-        Outputs:
-            mean_pred   : Mean of the stochastic predictions (The actual correction)
-            uncertainty : Standard deviation of the predictions across samples
+        Returns:
+            tuple: A tuple containing:
+                - mean_pred (torch.Tensor): Mean of the predictions.
+                - std_pred (torch.Tensor): Standard deviation (uncertainty spread).
         """
-        # Force the network to keep Dropout layers active during inference
-        self.train()
+        self.train()  # Force Dropout activation
+        with torch.no_grad():
+            preds = torch.stack([self.forward(x) for _ in range(num_samples)])
+            
+        mean_pred = preds.mean(dim=0)
+        std_pred = preds.std(dim=0)
         
-        predictions = []
-        with torch.no_grad(): # Disable gradient tracking for performance
-            for _ in range(num_samples):
-                predictions.append(self.forward(x))
-                
-        # Stack predictions: shape becomes (num_samples, batch_size, output_size)
-        predictions = torch.stack(predictions)
-        
-        # Compute mean and standard deviation across the num_samples dimension (dim = 0)
-        mean_pred = predictions.mean(dim = 0)
-        uncertainty = predictions.std(dim = 0)
-        
-        # Revert the network back to standard evaluation mode
-        self.eval()
-        
-        return mean_pred, uncertainty
+        return mean_pred, std_pred

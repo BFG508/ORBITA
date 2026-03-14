@@ -9,132 +9,132 @@ Description:
     This hyper-specialization completely isolates scale effects (altitude), 
     denominator singularities (eccentricity), and trigonometric non-linearities 
     (inclination). For each 3D cell, it generates the dataset and trains a 
-    highly specialized Neural Network.
+    highly specialized neural network.
 """
 
 import os
 import numpy as np
-from generate_dataset import genTrainingData
-from train            import trainModel
+from generate_dataset import gen_training_data
+from train import train_model
 
 # =============================================================================
 # GLOBAL ASTRODYNAMIC CONSTANTS
 # =============================================================================
 R_EQ = 6378.137e3  # Earth Equatorial Radius [m]
 
-def buildExpertGrid(
-    total_SMA_bounds, 
-    total_ECC_bounds, 
-    total_INC_bounds,
-    SMA_splits, 
-    ECC_splits,
-    INC_splits, 
-    samples_per_expert = 10000
+def build_expert_grid(
+    total_sma_bounds, 
+    total_ecc_bounds, 
+    total_inc_bounds,
+    sma_splits, 
+    ecc_splits,
+    inc_splits, 
+    samples_per_expert=5000
 ):
     """
     Executes the automated pipeline to generate and train a 3D grid of expert models.
     
-    Inputs:
-        total_SMA_bounds  : (min, max) for the entire Semi-Major Axis space      [m]
-        total_ECC_bounds  : (min, max) for the entire Eccentricity space         [-]
-        total_INC_bounds  : (min, max) for the entire Inclination space        [rad]
-        SMA_splits        : Number of subdivisions for the altitude domain
-        ECC_splits        : Number of subdivisions for the eccentricity domain
-        INC_splits        : Number of subdivisions for the inclination domain
-        samples_per_expert: Number of Monte Carlo samples per grid cell
+    Args:
+        total_sma_bounds (tuple): (min, max) for the entire Semi-Major Axis space [m].
+        total_ecc_bounds (tuple): (min, max) for the entire Eccentricity space [-].
+        total_inc_bounds (tuple): (min, max) for the entire Inclination space [rad].
+        sma_splits (int): Number of subdivisions for the altitude domain.
+        ecc_splits (int): Number of subdivisions for the eccentricity domain.
+        inc_splits (int): Number of subdivisions for the inclination domain.
+        samples_per_expert (int): Number of Monte Carlo samples per grid cell.
     """
-    total_models = SMA_splits * ECC_splits * INC_splits
+    total_models = sma_splits * ecc_splits * inc_splits
     
-    print("=" * 80)
-    print(f" 🏭 ORBITA FACTORY: BUILDING 3D GRID OF {total_models} EXPERT MODELS")
-    print(f"    SMA Splits (Altitude)  : {SMA_splits}")
-    print(f"    ECC Splits (Shape)     : {ECC_splits}")
-    print(f"    INC Splits (Angles)    : {INC_splits}")
-    print(f"    Samples per Cell       : {samples_per_expert}")
-    print("=" * 80)
+    print("-" * 80)
+    print(f" ORBITA FACTORY: BUILDING 3D GRID OF {total_models} EXPERT MODELS")
+    print(f"    SMA Splits (Altitude)  : {sma_splits}")
+    print(f"    ECC Splits (Shape)     : {ecc_splits}")
+    print(f"    INC Splits (Angles)    : {inc_splits}")
+    print(f"    Samples per Cell       : {int(samples_per_expert)}")
+    print("-" * 80)
     
     # Calculate step sizes for the 3D grid dimensions
-    SMA_min, SMA_max = total_SMA_bounds
-    SMA_step = (SMA_max - SMA_min) / SMA_splits
+    sma_min, sma_max = total_sma_bounds
+    sma_step = (sma_max - sma_min) / sma_splits
     
-    ECC_min, ECC_max = total_ECC_bounds
-    ECC_step = (ECC_max - ECC_min) / ECC_splits
+    ecc_min, ecc_max = total_ecc_bounds
+    ecc_step = (ecc_max - ecc_min) / ecc_splits
     
-    INC_min, INC_max = total_INC_bounds
-    INC_step = (INC_max - INC_min) / INC_splits
+    inc_min, inc_max = total_inc_bounds
+    inc_step = (inc_max - inc_min) / inc_splits
     
     # Fixed angular bounds for all experts (covering a full 360-degree orbit)
-    RAAN_bounds = (0.0, 2 * np.pi)
-    AOP_bounds  = (0.0, 2 * np.pi)
-    TA_bounds   = (0.0, 2 * np.pi)
-    TOF_bounds  = (0.0, 4.0 * 3600.0) # Up to 4 hours of flight time
+    raan_bounds = (0.0, 2.0 * np.pi)
+    aop_bounds  = (0.0, 2.0 * np.pi)
+    ta_bounds   = (0.0, 2.0 * np.pi)
+    tof_bounds  = (0.0, 30.0 * 60.0)  # Up to 30 minutes of flight time
     
     model_counter = 1
     
     # --- OUTER LOOP: Traverse the Semi-Major Axis (Altitude) ---
-    for i in range(SMA_splits):
-        expert_SMA_min = SMA_min + (i * SMA_step)
-        expert_SMA_max = expert_SMA_min + SMA_step
-        expert_SMA_bounds = (expert_SMA_min, expert_SMA_max)
+    for i in range(sma_splits):
+        expert_sma_min = sma_min + (i * sma_step)
+        expert_sma_max = expert_sma_min + sma_step
+        expert_sma_bounds = (expert_sma_min, expert_sma_max)
         
         # Convert to km for clean file naming
-        alt_min_km = int((expert_SMA_min - R_EQ) / 1e3)
-        alt_max_km = int((expert_SMA_max - R_EQ) / 1e3)
-        SMA_str = f"{alt_min_km}-{alt_max_km}"
+        alt_min_km = int((expert_sma_min - R_EQ) / 1e3)
+        alt_max_km = int((expert_sma_max - R_EQ) / 1e3)
+        sma_str = f"{alt_min_km}-{alt_max_km}"
         
         # --- MIDDLE LOOP: Traverse the Eccentricity (Shape) ---
-        for j in range(ECC_splits):
-            expert_ECC_min = ECC_min + (j * ECC_step)
-            expert_ECC_max = expert_ECC_min + ECC_step
-            expert_ECC_bounds = (expert_ECC_min, expert_ECC_max)
+        for j in range(ecc_splits):
+            expert_ecc_min = ecc_min + (j * ecc_step)
+            expert_ecc_max = expert_ecc_min + ecc_step
+            expert_ecc_bounds = (expert_ecc_min, expert_ecc_max)
             
-            # Format to 3 decimal places to avoid messy float names
-            ECC_str = f"{expert_ECC_min:.3f}-{expert_ECC_max:.3f}"
+            # Format to 2 decimal places to avoid messy float names
+            ecc_str = f"{expert_ecc_min:.2f}-{expert_ecc_max:.2f}"
             
             # --- INNER LOOP: Traverse the Inclination (Tilt) ---
-            for k in range(INC_splits):
-                expert_INC_min = INC_min + (k * INC_step)
-                expert_INC_max = expert_INC_min + INC_step
-                expert_INC_bounds = (expert_INC_min, expert_INC_max)
+            for k in range(inc_splits):
+                expert_inc_min = inc_min + (k * inc_step)
+                expert_inc_max = expert_inc_min + inc_step
+                expert_inc_bounds = (expert_inc_min, expert_inc_max)
                 
                 # Convert to degrees for clean file naming
-                deg_min = int(np.degrees(expert_INC_min))
-                deg_max = int(np.degrees(expert_INC_max))
-                INC_str = f"{deg_min}-{deg_max}"
+                deg_min = int(np.degrees(expert_inc_min))
+                deg_max = int(np.degrees(expert_inc_max))
+                inc_str = f"{deg_min}-{deg_max}"
                 
-                csv_filename = f"data/orbita_dataset_{SMA_str}_{ECC_str}_{INC_str}.csv"
+                csv_filename = f"data/orbita_dataset_{sma_str}_{ecc_str}_{inc_str}.csv"
                 
-                print("\n" + "*" * 75)
-                print(f" ⚙️  PROCESSING EXPERT {model_counter}/{total_models}")
-                print(f"    Domain: Alt [{alt_min_km}-{alt_max_km} km] | Ecc [{ECC_str}] | Inc [{deg_min}-{deg_max} deg]")
-                print("*" * 75)
+                print("\n" + "=" * 75)
+                print(f" PROCESSING EXPERT {model_counter}/{total_models}")
+                print(f" Domain: Alt [{alt_min_km}-{alt_max_km} km] | Ecc [{ecc_str}] | Inc [{deg_min}-{deg_max} deg]")
+                print("=" * 75)
                 
                 # --- PIPELINE STEP 1: DATA GENERATION ---
-                print(f" [STEP 1] Generating {samples_per_expert} Dataset Samples...")
-                genTrainingData(
-                    num_samples = samples_per_expert,
-                    output_file = csv_filename,
-                    SMA_bounds  = expert_SMA_bounds,
-                    ECC_bounds  = expert_ECC_bounds,
-                    INC_bounds  = expert_INC_bounds,
-                    RAAN_bounds = RAAN_bounds,
-                    AOP_bounds  = AOP_bounds,
-                    TA_bounds   = TA_bounds,
-                    TOF_bounds  = TOF_bounds
+                print(f" [step 1] Generating {int(samples_per_expert)} dataset samples...")
+                gen_training_data(
+                    num_samples=int(samples_per_expert),
+                    output_file=csv_filename,
+                    sma_bounds=expert_sma_bounds,
+                    ecc_bounds=expert_ecc_bounds,
+                    inc_bounds=expert_inc_bounds,
+                    raan_bounds=raan_bounds,
+                    aop_bounds=aop_bounds,
+                    ta_bounds=ta_bounds,
+                    tof_bounds=tof_bounds
                 )
                 
                 # --- PIPELINE STEP 2: MODEL TRAINING ---
-                print(f"\n [STEP 2] Training Neural Network...")
-                trainModel(
-                    csv_file   = csv_filename,
+                print(f"\n [step 2] Training neural network...")
+                train_model(
+                    csv_file=csv_filename,
                 )
                 
-                print(f"\n ✅ EXPERT {model_counter} COMPLETE.")
+                print(f"\n [info] EXPERT {model_counter} COMPLETE.")
                 model_counter += 1
             
-    print("=" * 80)
-    print(" 🚀 3D GRID FLEET GENERATION FINISHED SUCESSFULLY.")
-    print("=" * 80)
+    print("-" * 80)
+    print(" 3D GRID FLEET GENERATION FINISHED SUCCESSFULLY.")
+    print("-" * 80)
 
 
 # =============================================================================
@@ -143,17 +143,17 @@ def buildExpertGrid(
 if __name__ == "__main__":
     
     # Define the total operational domain
-    total_SMA = (R_EQ + 300e3, R_EQ + 2000e3) # 300 km to 2000 km
-    total_ECC = (0.0, 0.1)                    # Circular to low-elliptical
-    total_INC = (0.0, np.radians(90.0))       # Equatorial to polar
+    total_sma = (R_EQ + 300e3, R_EQ + 2000e3)  # 300 km to 2000 km
+    total_ecc = (0.0, 0.1)                     # Circular to low-elliptical
+    total_inc = (0.0, np.radians(90.0))        # Equatorial to polar
     
-    # Build a SMA_splits x ECC_splits x INC_splits grid
-    buildExpertGrid(
-        total_SMA_bounds   = total_SMA,
-        total_ECC_bounds   = total_ECC,
-        total_INC_bounds   = total_INC,
-        SMA_splits         = 17,
-        ECC_splits         = 10,
-        INC_splits         = 18,      
-        samples_per_expert = 5000
+    # Build a sma_splits x ecc_splits x inc_splits grid
+    build_expert_grid(
+        total_sma_bounds=total_sma,
+        total_ecc_bounds=total_ecc,
+        total_inc_bounds=total_inc,
+        sma_splits=4,
+        ecc_splits=4,
+        inc_splits=3,      
+        samples_per_expert=100000
     )

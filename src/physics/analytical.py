@@ -1,6 +1,20 @@
+"""
+Module: analytical.py
+
+Description:
+    Contains the fully expanded, closed-form analytical equations for the 
+    ESTHER propagation model (J2 and J3 secular/periodic perturbations).
+    
+    WARNING: DO NOT MODIFY.
+    The equations in this module are auto-generated symbolic mathematical 
+    expressions. Manual formatting or PEP 8 line-breaking is intentionally 
+    omitted to preserve the algebraic integrity and execution speed of the 
+    physics engine.
+"""
+
 import numpy as np
 
-def computeGeneralSolution(J2, J3, R, a, e, INC, Omega, omega, theta_0, X0, n, t):
+def compute_general_solution(J2, J3, R, a, e, INC, Omega, omega, theta_0, X0, n, t):
 
     x0  = X0[0]
     y0  = X0[1]

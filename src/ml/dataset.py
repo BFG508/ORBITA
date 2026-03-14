@@ -3,8 +3,8 @@ Module: dataset.py
 
 Description:
     Handles data loading, train/validation splitting, and feature normalization 
-    for the PyTorch Neural Network. Configured to process Classical Orbital 
-    Elements (COE) errors for specific orbital regimes (Expert Domains).
+    for the PyTorch neural network. Configured to process Modified Equinoctial 
+    Elements (MEE) inputs and residual errors for specific orbital regimes.
 """
 
 import torch
@@ -14,86 +14,112 @@ import numpy as np
 class OrbitalDataset(Dataset):
     """
     Custom PyTorch Dataset for the ORBITA framework.
-    Loads orbital parameters (X) and residual COE errors (Y) from a dynamically 
-    named CSV file.
+    Loads Modified Equinoctial Elements (MEE) inputs (x) and residual 
+    MEE errors (y) from a dynamically named CSV file.
     """
+    
     def __init__(self, csv_file):
+        """
+        Initializes the dataset, extracting features and targets, 
+        and computing normalization statistics.
+        
+        Args:
+            csv_file (str): Path to the dataset CSV file.
+        """
         # Load data using NumPy (skipping the header row)
         data = np.genfromtxt(csv_file, delimiter=',', skip_header=1)
         
         # 1. Extract raw input features (X)
-        SMA, ECC, INC = data[:, 0], data[:, 1], data[:, 2]
-        RAAN, AOP, TA = data[:, 3], data[:, 4], data[:, 5]
-        TOF = data[:, 6]
+        # Columns 0 to 6 correspond to: [p, f, g, h, k, L, TOF]
+        p = data[:, 0]
+        f = data[:, 1]
+        g = data[:, 2]
+        h = data[:, 3]
+        k = data[:, 4]
+        l_true = data[:, 5]
+        tof = data[:, 6]
         
-        # 2. Convert angles to continuous components
-        # This prevents the neural network from struggling with 360 to 0 degree jumps.
-        # Expands the 7 base features into 10 neural inputs.
-        X_raw = np.column_stack([
-            SMA, ECC, INC, 
-            np.sin(RAAN), np.cos(RAAN),
-            np.sin(AOP),  np.cos(AOP),
-            np.sin(TA),   np.cos(TA),
-            TOF
+        # 2. Continuous angle transformation
+        # To prevent the neural network from struggling with the 360-degree 
+        # jump of the true longitude (L), it is decomposed into sine and cosine.
+        # This results in a stable 8-feature input tensor.
+        x_raw = np.column_stack([
+            p, f, g, h, k, np.sin(l_true), np.cos(l_true), tof
         ])
         
         # 3. Extract target residuals (Y)
-        # Columns 7 to 12 correspond to: [err_SMA, err_ECC, err_INC, err_RAAN, err_AOP, err_TA]
-        Y_raw = data[:, 7:13]
+        # Columns 7 to 12 correspond to: [err_p, err_f, err_g, err_h, err_k, err_L]
+        y_raw = data[:, 7:13]
         
         # 4. Calculate normalization statistics (Z-score standardization)
         # Epsilon (1e-8) added to standard deviation to prevent division by zero
-        self.X_mean = np.mean(X_raw, axis=0)
-        self.X_std  = np.std(X_raw, axis=0) + 1e-8  
+        self.x_mean = np.mean(x_raw, axis=0)
+        self.x_std  = np.std(x_raw, axis=0) + 1e-8  
         
-        self.Y_mean = np.mean(Y_raw, axis=0)
-        self.Y_std  = np.std(Y_raw, axis=0) + 1e-8
+        self.y_mean = np.mean(y_raw, axis=0)
+        self.y_std  = np.std(y_raw, axis=0) + 1e-8
         
         # 5. Apply normalization
-        # Crucial for COE parameters since SMA is in millions of meters while ECC is ~0.01
-        X_norm = (X_raw - self.X_mean) / self.X_std
-        Y_norm = (Y_raw - self.Y_mean) / self.Y_std
+        x_norm = (x_raw - self.x_mean) / self.x_std
+        y_norm = (y_raw - self.y_mean) / self.y_std
         
         # 6. Convert to PyTorch tensors
-        self.X = torch.tensor(X_norm, dtype=torch.float32)
-        self.Y = torch.tensor(Y_norm, dtype=torch.float32)
+        self.x = torch.tensor(x_norm, dtype=torch.float32)
+        self.y = torch.tensor(y_norm, dtype=torch.float32)
 
     def __len__(self):
-        """Returns the total number of samples in the dataset."""
-        return len(self.X)
+        """
+        Returns the total number of samples in the dataset.
+        
+        Returns:
+            int: Total number of samples.
+        """
+        return len(self.x)
 
     def __getitem__(self, idx):
-        """Returns a single normalized (Feature, Target) tensor pair."""
-        return self.X[idx], self.Y[idx]
+        """
+        Returns a single normalized (feature, target) tensor pair.
+        
+        Args:
+            idx (int): Index of the sample to retrieve.
+            
+        Returns:
+            tuple: (x_tensor, y_tensor) corresponding to the index.
+        """
+        return self.x[idx], self.y[idx]
 
-    def unnormalize_y(self, y_tensor: torch.Tensor):
+    def unnormalize_y(self, y_tensor):
         """
         Reverts the neural network's normalized prediction back into 
-        actual physical units (meters, radians, etc.).
+        actual physical units.
+        
+        Args:
+            y_tensor (torch.Tensor): Normalized prediction tensor.
+            
+        Returns:
+            np.ndarray: Unnormalized physical predictions.
         """
         y_np = y_tensor.detach().cpu().numpy()
-        return (y_np * self.Y_std) + self.Y_mean
+        return (y_np * self.y_std) + self.y_mean
 
 
-def getDataloaders(csv_file, batch_size = 32, train_split = 0.8):
+def get_dataloaders(csv_file, batch_size=32, train_split=0.8):
     """
     Creates and returns the training and validation DataLoaders.
     
-    Inputs:
-        csv_file   : Path to the specific regime CSV dataset.
-        batch_size : Number of samples processed before updating the model's weights. 
-                     Default is 32 (standard baseline for memory efficiency), though 
-                     higher values (e.g., 256, 512) are usually passed during execution 
-                     for smoother gradient descent in large continuous datasets.
-        train_split: Fraction of the dataset allocated to the training phase. 
-                     Default is 0.8 (80% training, 20% validation), adhering to the 
-                     industry-standard Pareto principle to ensure a robust evaluation 
-                     of the model's generalization capabilities without overfitting.
+    Args:
+        csv_file (str): Path to the specific regime CSV dataset.
+        batch_size (int): Number of samples processed before updating weights. 
+                          Default is 32, though higher values (e.g., 256, 512) 
+                          are usually passed during execution.
+        train_split (float): Fraction of the dataset allocated to training. 
+                             Default is 0.8 (80% training, 20% validation).
 
-    Outputs:
-        train_loader: PyTorch DataLoader for the training loop
-        val_loader  : PyTorch DataLoader for the validation loop
-        full_dataset: The initialized OrbitalDataset object (useful for retrieving norm stats)
+    Returns:
+        tuple: A tuple containing:
+            - train_loader (DataLoader): PyTorch DataLoader for training.
+            - val_loader (DataLoader): PyTorch DataLoader for validation.
+            - full_dataset (OrbitalDataset): The initialized dataset object.
     """
     full_dataset = OrbitalDataset(csv_file)
     
@@ -107,7 +133,7 @@ def getDataloaders(csv_file, batch_size = 32, train_split = 0.8):
     )
     
     # Create the data loaders
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle = True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle = False)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     
     return train_loader, val_loader, full_dataset

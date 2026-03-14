@@ -2,68 +2,76 @@
 Script: generate_dataset.py
 
 Description:
-    Generates the dataset required to train the ORBITA Neural Network.
+    Generates the dataset required to train the ORBITA neural network.
     It uses Monte Carlo uniform random sampling across user-defined orbital 
-    parameter boundaries and Time of Flight (TOF). 
+    parameter boundaries and Time of Flight (tof). 
     
-    The script propagates the initial states using both the Analytical Baseline 
-    and the Numerical Oracle, computing the residual errors in terms of 
-    Classical Orbital Elements (COE) to facilitate secular variation learning.
+    The script propagates the initial states using both the analytical baseline 
+    (ESTHER) and the numerical oracle. Crucially, it saves both the inputs 
+    and the residual errors in Modified Equinoctial Elements (MEE) to grant 
+    the AI absolute mathematical immunity against classical singularities.
 """
 
 import os
 import csv
 import numpy as np
-from physics.analytical import computeGeneralSolution
-from physics.oracle     import getGroundTruth, COE2ECI, ECI2COE
-from physics.kepler     import getKeplerianNumerical
+from physics.analytical import compute_general_solution
+from physics.oracle import get_ground_truth, coe_to_eci, eci_to_coe, coe_to_mee
+from physics.kepler import get_keplerian_numerical
 
 # =============================================================================
 # GLOBAL ASTRODYNAMIC CONSTANTS (WGS84)
 # =============================================================================
-MU   = 3.986004418e14    # Gravitational parameter       [m^3/s^2]
-J2   =   1.082635854e-3  # J2 zonal harmonic coefficient       [-]
-J3   = - 2.532435346e-6  # J3 zonal harmonic coefficient       [-]
-R_EQ = 6378.137e3        # Equatorial radius                   [m]
+MU = 3.986004418e14      # Gravitational parameter [m^3/s^2]
+J2 = 1.082635854e-3      # J2 zonal harmonic coefficient [-]
+J3 = -2.532435346e-6     # J3 zonal harmonic coefficient [-]
+R_EQ = 6378.137e3        # Equatorial radius [m]
 
-def wrap2pi(angle):
+def wrap_to_pi(angle):
     """
     Wraps an angle or an array of angles to the interval [-pi, pi].
     Crucial for computing accurate angular errors without 360-degree jumps.
+    
+    Args:
+        angle (float or np.ndarray): Angle in radians.
+        
+    Returns:
+        float or np.ndarray: Wrapped angle in radians.
     """
-    return (angle + np.pi) % (2 * np.pi) - np.pi
+    return (angle + np.pi) % (2.0 * np.pi) - np.pi
 
-def genTrainingData(
+
+def gen_training_data(
     num_samples, 
     output_file, 
-    SMA_bounds, 
-    ECC_bounds, 
-    INC_bounds,
-    RAAN_bounds,
-    AOP_bounds,
-    TA_bounds,
-    TOF_bounds,
+    sma_bounds, 
+    ecc_bounds, 
+    inc_bounds,
+    raan_bounds,
+    aop_bounds,
+    ta_bounds,
+    tof_bounds
 ):
     """
     Samples the parameter space, runs both orbital models, and saves the 
-    residual COE errors to a CSV file.
+    input states and residual errors (both in MEE) to a CSV file.
 
-    Inputs:
-        num_samples: Number of Monte Carlo samples to generate
-        output_file: Path to the output CSV file
-        SMA_bounds : (min, max) for Semi-Major Axis                     [m]
-        ECC_bounds : (min, max) for Eccentricity                        [-]
-        INC_bounds : (min, max) for Inclination                       [rad]
-        RAAN_bounds: (min, max) for Right Ascension of Ascending Node [rad]
-        AOP_bounds : (min, max) for Argument of Periapsis             [rad]
-        TA_bounds  : (min, max) for True Anomaly                      [rad]
-        TOF_bounds : (min, max) for Time of Flight                      [s]
+    Args:
+        num_samples (float): Number of Monte Carlo samples to generate.
+        output_file (str): Path to the output CSV file.
+        sma_bounds (tuple): (min, max) for semi-major axis [m].
+        ecc_bounds (tuple): (min, max) for eccentricity [-].
+        inc_bounds (tuple): (min, max) for inclination [rad].
+        raan_bounds (tuple): (min, max) for right ascension of ascending node [rad].
+        aop_bounds (tuple): (min, max) for argument of periapsis [rad].
+        ta_bounds (tuple): (min, max) for true anomaly [rad].
+        tof_bounds (tuple): (min, max) for time of flight [s].
     """
-    print("=" * 60)
-    print(f"🚀 INITIATING ORBITA DATASET GENERATION")
-    print(f"   Target Samples : {num_samples}")
-    print(f"   Output File    : {output_file}")
-    print("=" * 60)
+    print("-" * 70)
+    print(" INITIATING ORBITA DATASET GENERATION")
+    print(f" Target samples : {int(num_samples)}")
+    print(f" Output file    : {output_file}")
+    print("-" * 70)
     
     # Ensure the target directory exists
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
@@ -71,88 +79,95 @@ def genTrainingData(
     # Open CSV file and write the header row
     with open(output_file, mode='w', newline='') as f:
         writer = csv.writer(f)
+        
+        # Write header
         writer.writerow([
-            "SMA", "ECC", "INC", "RAAN", "AOP", "TA", "TOF",
-            "err_SMA", "err_ECC", "err_INC", "err_RAAN", "err_AOP", "err_TA"
+            "p", "f", "g", "h", "k", "L", "TOF",
+            "err_p", "err_f", "err_g", "err_h", "err_k", "err_L"
         ])
         
         valid_samples = 0
         
-        # Use a while loop to keep searching until we have the desired number of valid samples
+        # Use a while loop to filter out physically invalid orbits (underground perigees)
         while valid_samples < num_samples:
             # -----------------------------------------------------------------
-            # 1. SAMPLE THE FEATURE SPACE
+            # 1. SAMPLE THE FEATURE SPACE (In COE for human intuition)
             # -----------------------------------------------------------------
-            SMA  = np.random.uniform(SMA_bounds[0],  SMA_bounds[1])
-            ECC  = np.random.uniform(ECC_bounds[0],  ECC_bounds[1])
+            sma = np.random.uniform(sma_bounds[0], sma_bounds[1])
+            ecc = np.random.uniform(ecc_bounds[0], ecc_bounds[1])
             
-            # Check if perigee is inside the Earth's atmosphere (150 km limit)
-            r_perigee = SMA * (1.0 - ECC)
-            if r_perigee < R_EQ + 150e3:
+            # Check if perigee is inside the Earth's atmosphere (150 km safety limit)
+            r_periapsis = sma * (1.0 - ecc)
+            if r_periapsis < R_EQ + 150e3:
                 continue
                 
-            INC  = np.random.uniform(INC_bounds[0],  INC_bounds[1])
-            RAAN = np.random.uniform(RAAN_bounds[0], RAAN_bounds[1])
-            AOP  = np.random.uniform(AOP_bounds[0],  AOP_bounds[1])
-            TA   = np.random.uniform(TA_bounds[0],   TA_bounds[1])
-            TOF  = np.random.uniform(TOF_bounds[0],  TOF_bounds[1])
+            inc = np.random.uniform(inc_bounds[0], inc_bounds[1])
+            raan = np.random.uniform(raan_bounds[0], raan_bounds[1])
+            aop = np.random.uniform(aop_bounds[0], aop_bounds[1])
+            ta = np.random.uniform(ta_bounds[0], ta_bounds[1])
+            tof = np.random.uniform(tof_bounds[0], tof_bounds[1])
             
             # -----------------------------------------------------------------
-            # 2. NUMERICAL ORACLE EXECUTION (Ground Truth)
+            # 2. INPUT CONVERSION (COE -> MEE for the Neural Network)
             # -----------------------------------------------------------------
-            pos_num, vel_num = getGroundTruth(SMA, ECC, INC, RAAN, AOP, TA, TOF)
+            mee_inputs = coe_to_mee(sma, ecc, inc, raan, aop, ta)
+            p_in, f_in, g_in, h_in, k_in, l_in = mee_inputs
             
             # -----------------------------------------------------------------
-            # 3. ANALYTICAL BASELINE EXECUTION
+            # 3. NUMERICAL ORACLE EXECUTION (Ground Truth)
             # -----------------------------------------------------------------
-            # Translate initial COE to ECI for Keplerian propagation
-            r0, v0 = COE2ECI(MU, SMA, ECC, INC, RAAN, AOP, TA)
+            pos_num, vel_num = get_ground_truth(sma, ecc, inc, raan, aop, ta, tof)
             
-            # Compute Analytical Perturbations (J2 & J3)
-            X0_pert = np.zeros(6)
-            n = np.sqrt(MU / (SMA**3))
-            deltaPos_ESTHER, deltaVel_ESTHER = computeGeneralSolution(
-                J2, J3, R_EQ, SMA, ECC, INC, RAAN, AOP, TA, X0_pert, n, TOF
+            # -----------------------------------------------------------------
+            # 4. ANALYTICAL BASELINE EXECUTION
+            # -----------------------------------------------------------------
+            r0, v0 = coe_to_eci(MU, sma, ecc, inc, raan, aop, ta)
+            
+            x0_pert = np.zeros(6)
+            n_mean = np.sqrt(MU / (sma**3))
+            
+            # compute_general_solution retains original signature from analytical.py
+            delta_pos_esther, delta_vel_esther = compute_general_solution(
+                J2, J3, R_EQ, sma, ecc, inc, raan, aop, ta, x0_pert, n_mean, tof
             )
             
-            # Compute Pure Keplerian state and add perturbations
-            pos_kep, vel_kep = getKeplerianNumerical(MU, r0, v0, TOF)
-            pos_ESTHER = pos_kep + deltaPos_ESTHER
-            vel_ESTHER = vel_kep + deltaVel_ESTHER 
+            pos_kep, vel_kep = get_keplerian_numerical(MU, r0, v0, tof)
+            
+            pos_esther = pos_kep + delta_pos_esther
+            vel_esther = vel_kep + delta_vel_esther
             
             # -----------------------------------------------------------------
-            # 4. STATE TRANSFORMATION (ECI -> COE)
+            # 5. STATE TRANSFORMATION & ERROR CALCULATION
             # -----------------------------------------------------------------
-            coe_num = ECI2COE(MU, pos_num, vel_num)
-            coe_ESTHER = ECI2COE(MU, pos_ESTHER, vel_ESTHER) 
+            coe_num = eci_to_coe(MU, pos_num, vel_num)
+            coe_esther = eci_to_coe(MU, pos_esther, vel_esther) 
             
-            # -----------------------------------------------------------------
-            # 5. RESIDUAL ERROR CALCULATION (Y = Oracle - Analytical)
-            # -----------------------------------------------------------------
-            err_SMA = coe_num[0] - coe_ESTHER[0]
-            err_ECC = coe_num[1] - coe_ESTHER[1]
-            
-            # Angular differences must be wrapped to [-pi, pi] to avoid artificial spikes
-            err_INC  = wrap2pi(coe_num[2] - coe_ESTHER[2])
-            err_RAAN = wrap2pi(coe_num[3] - coe_ESTHER[3])
-            err_AOP  = wrap2pi(coe_num[4] - coe_ESTHER[4])
-            err_TA   = wrap2pi(coe_num[5] - coe_ESTHER[5])
+            mee_num = coe_to_mee(*coe_num)
+            mee_esther = coe_to_mee(*coe_esther)
+
+            # Residual Error (Y = Oracle - Analytical)
+            err_p = mee_num[0] - mee_esther[0]
+            err_f = mee_num[1] - mee_esther[1]
+            err_g = mee_num[2] - mee_esther[2]
+            err_h = mee_num[3] - mee_esther[3]
+            err_k = mee_num[4] - mee_esther[4]
+            err_l = wrap_to_pi(mee_num[5] - mee_esther[5])
             
             # -----------------------------------------------------------------
             # 6. DATA RECORDING
             # -----------------------------------------------------------------
             writer.writerow([
-                SMA, ECC, INC, RAAN, AOP, TA, TOF,
-                err_SMA, err_ECC, err_INC, err_RAAN, err_AOP, err_TA
+                p_in, f_in, g_in, h_in, k_in, l_in, tof,
+                err_p, err_f, err_g, err_h, err_k, err_l
             ])
-            
+
             valid_samples += 1
             
             # Console progress tracker
             if valid_samples % 1000 == 0:
-                print(f" [INFO] Processed {valid_samples}/{num_samples} samples...")
+                print(f" [info] Processed {valid_samples}/{int(num_samples)} samples...")
 
-    print(f"\n ✅ Dataset successfully generated and saved to: {output_file}\n")
+    print(f"\n Dataset successfully generated and saved to: {output_file}\n")
 
 
 # =============================================================================
@@ -161,32 +176,31 @@ def genTrainingData(
 if __name__ == "__main__":
     
     # 1. Define the Mission-Specific Bounds (The "Expert" domain)
-    mission_SMA_bounds  = (R_EQ + 300e3, R_EQ + 2000e3)
-    mission_ECC_bounds  = (0, 0.1)
-    mission_INC_bounds  = (np.deg2rad(0), np.deg2rad(90))
+    mission_sma_bounds = (R_EQ + 300e3, R_EQ + 400e3)
+    mission_ecc_bounds = (0.0, 0.1)
+    mission_inc_bounds = (np.deg2rad(0), np.deg2rad(90))
     
-    mission_RAAN_bounds = (0.0, 2 * np.pi)
-    mission_AOP_bounds  = (0.0, 2 * np.pi)
-    mission_TA_bounds   = (0.0, 2 * np.pi)
-    mission_TOF_bounds  = (0.0, 4.0 * 3600.0) # Up to 4 hours of flight time
+    mission_raan_bounds = (0.0, 2.0 * np.pi)
+    mission_aop_bounds = (0.0, 2.0 * np.pi)
+    mission_ta_bounds = (0.0, 2.0 * np.pi)
+    mission_tof_bounds = (0.0, 30.0 * 60.0) # Up to 30 minutes of flight time
     
     # 2. Dynamic Filename Generation
-    # We convert SMA to km and INC to degrees for a cleaner, human-readable string
-    SMA_str = f"{int( (mission_SMA_bounds[0] - R_EQ)/1e3 )}-{int( (mission_SMA_bounds[1] - R_EQ)/1e3 )}"
-    ECC_str = f"{mission_ECC_bounds[0]:.3f}-{mission_ECC_bounds[1]:.3f}"
-    INC_str = f"{int(np.rad2deg(mission_INC_bounds[0]))}-{int(np.rad2deg(mission_INC_bounds[1]))}"
+    sma_str = f"{int((mission_sma_bounds[0] - R_EQ) / 1e3)}-{int((mission_sma_bounds[1] - R_EQ) / 1e3)}"
+    ecc_str = f"{mission_ecc_bounds[0]:.2f}-{mission_ecc_bounds[1]:.2f}"
+    inc_str = f"{int(np.rad2deg(mission_inc_bounds[0]))}-{int(np.rad2deg(mission_inc_bounds[1]))}"
     
-    filename = f"data/orbita_dataset_{SMA_str}_{ECC_str}_{INC_str}.csv"
+    filename = f"data/orbita_dataset_{sma_str}_{ecc_str}_{inc_str}.csv"
     
     # 3. Execute the generation
-    genTrainingData(
-        num_samples = 10000,
-        output_file = filename,
-        SMA_bounds  = mission_SMA_bounds,
-        ECC_bounds  = mission_ECC_bounds,
-        INC_bounds  = mission_INC_bounds,
-        RAAN_bounds = mission_RAAN_bounds,
-        AOP_bounds  = mission_AOP_bounds,
-        TA_bounds   = mission_TA_bounds,
-        TOF_bounds  = mission_TOF_bounds
+    gen_training_data(
+        num_samples=100000,
+        output_file=filename,
+        sma_bounds=mission_sma_bounds,
+        ecc_bounds=mission_ecc_bounds,
+        inc_bounds=mission_inc_bounds,
+        raan_bounds=mission_raan_bounds,
+        aop_bounds=mission_aop_bounds,
+        ta_bounds=mission_ta_bounds,
+        tof_bounds=mission_tof_bounds
     )
