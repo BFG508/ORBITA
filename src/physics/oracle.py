@@ -15,7 +15,7 @@ import numpy as np
 from scipy.integrate import solve_ivp
 
 # =============================================================================
-# GLOBAL ASTRODYNAMIC CONSTANTS
+# GLOBAL ASTRODYNAMIC CONSTANTS (WGS84)
 # =============================================================================
 MU = 3.986004418e14      # Gravitational parameter [m^3/s^2]
 J2 = 1.082635854e-3      # J2 zonal harmonic coefficient [-]

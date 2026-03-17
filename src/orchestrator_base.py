@@ -12,15 +12,13 @@ Description:
     highly specialized neural network.
 """
 
-import os
 import numpy as np
-from generate_dataset import gen_training_data
-from train import train_model
 
-# =============================================================================
-# GLOBAL ASTRODYNAMIC CONSTANTS
-# =============================================================================
-R_EQ = 6378.137e3  # Earth Equatorial Radius [m]
+from generate_base_dataset import generate_training_data
+from train_base import train_model
+
+from physics.oracle import R_EQ
+
 
 def build_expert_grid(
     total_sma_bounds, 
@@ -89,7 +87,7 @@ def build_expert_grid(
             expert_ecc_bounds = (expert_ecc_min, expert_ecc_max)
             
             # Format to 2 decimal places to avoid messy float names
-            ecc_str = f"{expert_ecc_min:.2f}-{expert_ecc_max:.2f}"
+            ecc_str = f"{expert_ecc_min:.4f}-{expert_ecc_max:.4f}"
             
             # --- INNER LOOP: Traverse the Inclination (Tilt) ---
             for k in range(inc_splits):
@@ -111,7 +109,7 @@ def build_expert_grid(
                 
                 # --- PIPELINE STEP 1: DATA GENERATION ---
                 print(f" [step 1] Generating {int(samples_per_expert)} dataset samples...")
-                gen_training_data(
+                generate_training_data(
                     num_samples=int(samples_per_expert),
                     output_file=csv_filename,
                     sma_bounds=expert_sma_bounds,
@@ -141,10 +139,9 @@ def build_expert_grid(
 # Execution Block
 # =============================================================================
 if __name__ == "__main__":
-    
     # Define the total operational domain
     total_sma = (R_EQ + 300e3, R_EQ + 2000e3)  # 300 km to 2000 km
-    total_ecc = (0.0, 0.1)                     # Circular to low-elliptical
+    total_ecc = (0, 0.1)                       # Circular to low-elliptical
     total_inc = (0.0, np.radians(90.0))        # Equatorial to polar
     
     # Build a sma_splits x ecc_splits x inc_splits grid
@@ -152,8 +149,8 @@ if __name__ == "__main__":
         total_sma_bounds=total_sma,
         total_ecc_bounds=total_ecc,
         total_inc_bounds=total_inc,
-        sma_splits=4,
-        ecc_splits=4,
-        inc_splits=3,      
+        sma_splits=17,
+        ecc_splits=10,
+        inc_splits=9,
         samples_per_expert=100000
     )

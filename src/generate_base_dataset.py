@@ -1,5 +1,5 @@
 """
-Script: generate_dataset.py
+Script: generate_base_dataset.py
 
 Description:
     Generates the dataset required to train the ORBITA neural network.
@@ -15,17 +15,20 @@ Description:
 import os
 import csv
 import numpy as np
+
 from physics.analytical import compute_general_solution
 from physics.oracle import get_ground_truth, coe_to_eci, eci_to_coe, coe_to_mee
-from physics.kepler import get_keplerian_numerical
+from physics.kepler import get_keplerian
+
+from physics.oracle import MU, J2, J3, R_EQ
 
 # =============================================================================
-# GLOBAL ASTRODYNAMIC CONSTANTS (WGS84)
+# CONSTANTS
 # =============================================================================
-MU = 3.986004418e14      # Gravitational parameter [m^3/s^2]
-J2 = 1.082635854e-3      # J2 zonal harmonic coefficient [-]
-J3 = -2.532435346e-6     # J3 zonal harmonic coefficient [-]
-R_EQ = 6378.137e3        # Equatorial radius [m]
+# A satellite in LEO requires a minimum altitude to prevent immediate 
+# atmospheric decay or mathematical singularities in the gravity model.
+MIN_SAFE_PERIGEE = R_EQ + 200e3  # 200 km minimum altitude
+
 
 def wrap_to_pi(angle):
     """
@@ -41,7 +44,7 @@ def wrap_to_pi(angle):
     return (angle + np.pi) % (2.0 * np.pi) - np.pi
 
 
-def gen_training_data(
+def generate_training_data(
     num_samples, 
     output_file, 
     sma_bounds, 
@@ -96,9 +99,9 @@ def gen_training_data(
             sma = np.random.uniform(sma_bounds[0], sma_bounds[1])
             ecc = np.random.uniform(ecc_bounds[0], ecc_bounds[1])
             
-            # Check if perigee is inside the Earth's atmosphere (150 km safety limit)
+            # Check if perigee is inside the Earth's atmosphere
             r_periapsis = sma * (1.0 - ecc)
-            if r_periapsis < R_EQ + 150e3:
+            if r_periapsis < MIN_SAFE_PERIGEE:
                 continue
                 
             inc = np.random.uniform(inc_bounds[0], inc_bounds[1])
@@ -131,7 +134,7 @@ def gen_training_data(
                 J2, J3, R_EQ, sma, ecc, inc, raan, aop, ta, x0_pert, n_mean, tof
             )
             
-            pos_kep, vel_kep = get_keplerian_numerical(MU, r0, v0, tof)
+            pos_kep, vel_kep = get_keplerian(MU, r0, v0, tof)
             
             pos_esther = pos_kep + delta_pos_esther
             vel_esther = vel_kep + delta_vel_esther
@@ -174,10 +177,9 @@ def gen_training_data(
 # EXECUTION BLOCK
 # =============================================================================
 if __name__ == "__main__":
-    
     # 1. Define the Mission-Specific Bounds (The "Expert" domain)
-    mission_sma_bounds = (R_EQ + 300e3, R_EQ + 400e3)
-    mission_ecc_bounds = (0.0, 0.1)
+    mission_sma_bounds = (R_EQ + 300e3, R_EQ + 2000e3)
+    mission_ecc_bounds = (0, 0.1)
     mission_inc_bounds = (np.deg2rad(0), np.deg2rad(90))
     
     mission_raan_bounds = (0.0, 2.0 * np.pi)
@@ -187,13 +189,13 @@ if __name__ == "__main__":
     
     # 2. Dynamic Filename Generation
     sma_str = f"{int((mission_sma_bounds[0] - R_EQ) / 1e3)}-{int((mission_sma_bounds[1] - R_EQ) / 1e3)}"
-    ecc_str = f"{mission_ecc_bounds[0]:.2f}-{mission_ecc_bounds[1]:.2f}"
+    ecc_str = f"{mission_ecc_bounds[0]:.4f}-{mission_ecc_bounds[1]:.4f}"
     inc_str = f"{int(np.rad2deg(mission_inc_bounds[0]))}-{int(np.rad2deg(mission_inc_bounds[1]))}"
     
     filename = f"data/orbita_dataset_{sma_str}_{ecc_str}_{inc_str}.csv"
     
     # 3. Execute the generation
-    gen_training_data(
+    generate_training_data(
         num_samples=100000,
         output_file=filename,
         sma_bounds=mission_sma_bounds,

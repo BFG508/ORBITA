@@ -1,5 +1,5 @@
 """
-Script: simulate_mission.py
+Module: simulate_mission.py
 
 Description:
     Final flight simulator implementing the 3D Mixture of Experts (MoE) routing.
@@ -14,26 +14,23 @@ Description:
 
 import os
 import glob
-import torch
 import numpy as np
+import torch
+
 from physics.analytical import compute_general_solution
 from physics.oracle import coe_to_eci, eci_to_coe, coe_to_mee, mee_to_coe, get_ground_truth
-from physics.kepler import get_keplerian_numerical
-from ml.active_learning import ResidualPredictor
+from physics.kepler import get_keplerian
+from ml.architecture import ResidualPredictor
 from ml.dataset import OrbitalDataset
 
-# =============================================================================
-# GLOBAL ASTRODYNAMIC CONSTANTS
-# =============================================================================
-MU = 3.986004418e14      # Gravitational parameter [m^3/s^2]
-J2 = 1.082635854e-3      # J2 zonal harmonic coefficient [-]
-J3 = -2.532435346e-6     # J3 zonal harmonic coefficient [-]
-R_EQ = 6378.137e3        # Equatorial radius [m]
+from physics.oracle import MU, J2, J3, R_EQ
+
 
 def find_expert_system(sma, ecc, inc):
     """
     Acts as the MoE Router. Scans the 'models' directory and dynamically 
     selects the correct expert neural network based on the initial state.
+    Prioritizes fine-tuned (upgraded) models if they are available.
     
     Args:
         sma (float): Semi-major axis [m].
@@ -47,8 +44,15 @@ def find_expert_system(sma, ecc, inc):
     inc_deg = np.degrees(inc)
     
     print(" [ROUTER] Searching for specialized expert model...")
-    for model_path in glob.glob("models/orbita_predictor_*.pth"):
-        basename = os.path.basename(model_path)
+    
+    # 1. Gather only the base models to parse the domain bounds correctly
+    base_models = [m for m in glob.glob("models/orbita_predictor_*.pth") 
+                   if "_finetuned" not in m]
+    
+    for base_model_path in base_models:
+        # Normalize paths for cross-platform compatibility
+        base_model_path = base_model_path.replace('\\', '/')
+        basename = os.path.basename(base_model_path)
         params_str = basename.replace("orbita_predictor_", "").replace(".pth", "")
         parts = params_str.split("_")
         
@@ -60,36 +64,49 @@ def find_expert_system(sma, ecc, inc):
         ecc_min, ecc_max = map(float, ecc_str.split("-"))
         inc_min, inc_max = map(float, inc_str.split("-"))
         
-        # Check domain applicability
-        if (alt_min <= alt_km <= alt_max) and (ecc_min <= ecc <= ecc_max) and (inc_min <= inc_deg <= inc_max):
-            dataset_path = f"data/orbita_dataset_{params_str}.csv"
-            print(f" [ROUTER] Expert found: {basename}")
-            return model_path, dataset_path
+        # 2. Check if the orbit falls within this expert's domain
+        if (alt_min <= alt_km <= alt_max) and (ecc_min <= ecc <= ecc_max) and \
+           (inc_min <= inc_deg <= inc_max):
             
-    raise ValueError(f"No expert model covers this orbit (Alt: {alt_km}km, Ecc: {ecc}, Inc: {inc_deg}deg)")
+            # 3. Domain matched! Check if an upgraded fine-tuned model exists
+            finetuned_path = f"models/orbita_predictor_{params_str}_finetuned.pth"
+            dataset_path = f"data/orbita_dataset_{params_str}.csv"
+            
+            if os.path.exists(finetuned_path):
+                print(f" [ROUTER] Upgraded Expert found: {os.path.basename(finetuned_path)}")
+                return finetuned_path, dataset_path
+            else:
+                print(f" [ROUTER] Base Expert found: {basename}")
+                return base_model_path, dataset_path
+                
+    raise ValueError(f"No expert model covers this orbit "
+                     f"(Alt: {alt_km:.2f}km, Ecc: {ecc:.4f}, Inc: {inc_deg:.2f}deg)")
 
 
-def run_stress_test_simulation():
+def run_stress_test_simulation(sma_0, ecc_0, inc_0, raan_0, aop_0, ta_0, 
+                               max_tof, step_size=900, uncertainty_threshold=100.0):
     """
     Executes the closed-loop flight simulation, alternating between 
     the analytical-AI hybrid model and the numerical oracle based on 
     epistemic uncertainty bounds.
+    
+    Args:
+        sma_0 (float): Initial semi-major axis [m].
+        ecc_0 (float): Initial eccentricity [-].
+        inc_0 (float): Initial inclination [rad].
+        raan_0 (float): Initial RAAN [rad].
+        aop_0 (float): Initial argument of perigee [rad].
+        ta_0 (float): Initial true anomaly [rad].
+        max_tof (float): Maximum Time of Flight for the simulation [s].
+        step_size (int): Time step interval for iterative propagation [s].
+        uncertainty_threshold (float): Spatial threshold to trigger GPS Reset [m].
     """
     print("-" * 80)
     print(" INITIATING ORBITA FLIGHT SIMULATION (MoE ARCHITECTURE)")
     print("-" * 80)
     
-    # 1. Define absolute initial mission parameters (T0)
-    sma_0 = R_EQ + 300e3 
-    ecc_0 = 0.01
-    inc_0 = np.deg2rad(0) 
-    raan_0, aop_0, ta_0 = 0.0, 0.0, 0.0
-    
-    # Define evaluation steps (4 hours, 15-minute steps)
-    time_steps = np.arange(0, 4 * 3600 + 1, 15 * 60) 
-    
-    # Safety margin established at 100 meters
-    uncertainty_threshold = 100.0 
+    # Define evaluation steps dynamically
+    time_steps = np.arange(0, max_tof + 1, step_size) 
     
     try:
         model_path, dataset_path = find_expert_system(sma=sma_0, ecc=ecc_0, inc=inc_0)
@@ -110,7 +127,7 @@ def run_stress_test_simulation():
     
     print(f"\n Simulating orbit over {len(time_steps) - 1} evaluation steps...")
     print(f" Safety threshold: {uncertainty_threshold} meters\n")
-    print(f"{'Time (s)':<10} | {'Decision':<12} | {'Uncertainty [m]':<12} | {'Error [m]'}")
+    print(f"{'Time (s)':<9} | {'Decision':<12} | {'Uncertainty [m]':<15} | {'Absolute Error [m]':<10}")
     print("-" * 80)
 
     # =========================================================================
@@ -121,7 +138,7 @@ def run_stress_test_simulation():
     curr_raan, curr_aop, curr_ta = raan_0, aop_0, ta_0
     prev_tof = 0.0
 
-    # 3. Flight Loop
+    # Flight Loop
     for tof in time_steps:
         if tof == 0:
             continue 
@@ -150,7 +167,7 @@ def run_stress_test_simulation():
         # ---------------------------------------------------------------------
         # EUCLIDEAN MONTE CARLO DROPOUT (Uncertainty Cloud)
         # ---------------------------------------------------------------------
-        model.train() # Force Dropout activation for statistical variance
+        model.train()  # Force Dropout activation for statistical variance
         
         # Propagate analytical baseline for dt
         r0, v0 = coe_to_eci(MU, curr_sma, curr_ecc, curr_inc, curr_raan, curr_aop, curr_ta)
@@ -158,9 +175,10 @@ def run_stress_test_simulation():
         n_mean = np.sqrt(MU / (curr_sma**3))
         
         delta_pos_esther, delta_vel_esther = compute_general_solution(
-            J2, J3, R_EQ, curr_sma, curr_ecc, curr_inc, curr_raan, curr_aop, curr_ta, x0_pert, n_mean, dt
+            J2, J3, R_EQ, curr_sma, curr_ecc, curr_inc, curr_raan, curr_aop, 
+            curr_ta, x0_pert, n_mean, dt
         )
-        pos_kep, vel_kep = get_keplerian_numerical(MU, r0, v0, dt)
+        pos_kep, vel_kep = get_keplerian(MU, r0, v0, dt)
         
         pos_esther = pos_kep + delta_pos_esther
         vel_esther = vel_kep + delta_vel_esther
@@ -189,7 +207,7 @@ def run_stress_test_simulation():
         scalar_uncertainty = np.linalg.norm(std_3d) 
         
         mean_pred_mee = np.mean(raw_mee_predictions, axis=0)
-        model.eval() # Disable Dropout for actual prediction
+        model.eval()  # Disable Dropout for actual deterministic prediction
         
         # ---------------------------------------------------------------------
         # ACTIVE LEARNING DECISION GATEWAY
@@ -217,8 +235,7 @@ def run_stress_test_simulation():
         pos_truth, _ = get_ground_truth(sma_0, ecc_0, inc_0, raan_0, aop_0, ta_0, tof)
         absolute_error_meters = np.linalg.norm(pos_final - pos_truth)
         
-        action = f"Absolute: {absolute_error_meters:6.2f}  &  Spread: {scalar_uncertainty:6.2f}"
-        print(f"{tof:<10.1f} | {decision:<12} | {scalar_uncertainty:<15.4f} | {action}")
+        print(f"{tof:<9.1f} | {decision:<12} | {scalar_uncertainty:<15.4f} | {absolute_error_meters:<16.4f}")
 
         # =====================================================================
         # STATE UPDATE (Closing the loop)
@@ -240,4 +257,28 @@ def run_stress_test_simulation():
 # Execution Block
 # =============================================================================
 if __name__ == "__main__":
-    run_stress_test_simulation()
+    # 1. Mission Configuration (Orbit Parameters at T0)
+    TARGET_SMA = R_EQ + 300e3 
+    TARGET_ECC = 0.02
+    TARGET_INC = np.deg2rad(0) 
+    TARGET_RAAN = 0.0
+    TARGET_AOP = 0.0
+    TARGET_TA = 0.0
+    
+    # 2. Simulation Constraints
+    MAX_TOF = 4 * 3600             # 4 hours of total flight time
+    PROPAGATION_STEP = 15 * 60     # 15-minute intervals
+    SAFETY_THRESHOLD = 100.0       # 100 meters allowable epistemic uncertainty
+    
+    # 3. Execution
+    run_stress_test_simulation(
+        sma_0=TARGET_SMA, 
+        ecc_0=TARGET_ECC, 
+        inc_0=TARGET_INC, 
+        raan_0=TARGET_RAAN, 
+        aop_0=TARGET_AOP, 
+        ta_0=TARGET_TA, 
+        max_tof=MAX_TOF,
+        step_size=PROPAGATION_STEP,
+        uncertainty_threshold=SAFETY_THRESHOLD
+    )

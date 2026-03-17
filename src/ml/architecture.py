@@ -1,5 +1,5 @@
 """
-Module: active_learning.py
+Module: architecture.py
 
 Description:
     Contains the Deep Neural Network architecture (ResidualPredictor) used as 
@@ -50,7 +50,7 @@ class ResidualBlock(nn.Module):
         out = self.act2(out)
         out = self.drop2(out)
         
-        # RESIDUAL ADDITION: Allows learning high-frequency non-linear features
+        # Residual Addition: Allows learning high-frequency non-linear features
         return out + identity 
 
 
