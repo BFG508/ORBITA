@@ -1,5 +1,5 @@
 """
-Module: benchmark.py
+Script: benchmark.py
 
 Description:
     Flight-grade aerospace benchmark suite for the ORBITA framework.
@@ -20,10 +20,11 @@ Validation Modes:
 """
 
 import os
-import time
 import csv
-import torch
+import time
+from typing import Optional, Tuple, List, Any
 import numpy as np
+import torch
 
 from physics.analytical import compute_general_solution
 from physics.oracle import coe_to_eci, eci_to_coe, coe_to_mee, mee_to_coe, get_ground_truth
@@ -156,15 +157,16 @@ def execute_ai_step(sma, ecc, inc, raan, aop, ta, dt, model, dataset):
     return pos_est, vel_est
 
 
-def run_time_domain_benchmark(sma, ecc, inc, raan, aop, ta, max_tof):
+def run_time_domain_benchmark(sma, ecc, inc, raan, aop, ta, max_tof, case_name="default"):
     """
-    Executes the secular degradation test for a specific target orbit.
-    
-    Propagates a single initial state over a designated maximum Time of Flight 
-    to evaluate the accumulated secular error of the AI Hybrid model against 
-    the Numerical Oracle. Includes an absolute safety check to prevent evaluating 
-    subterranean or re-entering orbits.
-    
+    Execute the secular degradation test for a specific target orbit.
+
+    This function propagates a single initial orbital state over a designated
+    maximum Time of Flight (TOF) to evaluate the accumulated secular error of
+    the AI Hybrid model against the Numerical Oracle. It returns the generated
+    data instead of saving it directly to the OS, allowing for memory-efficient
+    batch processing.
+
     Args:
         sma (float): Semi-major axis [m].
         ecc (float): Eccentricity [-].
@@ -173,30 +175,36 @@ def run_time_domain_benchmark(sma, ecc, inc, raan, aop, ta, max_tof):
         aop (float): Argument of Perigee [rad].
         ta (float): True Anomaly [rad].
         max_tof (float): Maximum Time of Flight for the simulation [s].
+        case_name (str, optional): Identifier for the output logs. Defaults to "default".
+
+    Returns:
+        tuple: A tuple containing:
+            - results_log (list[list] or None): The logged simulation data containing
+              [case_name, time, radial_error, intrack_error, crosstrack_error].
+              Returns None if the orbit is unsafe or if MoE routing fails.
+            - total_oracle_time (float): Computation time used by the Oracle [s].
+            - total_ai_time (float): Computation time used by the AI model [s].
     """
-    print("\n" + "=" * 80)
-    print(" ⏱️ TIME-DOMAIN BENCHMARK: SECULAR DEGRADATION")
+    print(f"\n{'=' * 80}")
+    print(f" TIME-DOMAIN BENCHMARK: SECULAR DEGRADATION ({case_name.upper()})")
     print("=" * 80)
     
-    # =========================================================================
-    # 0. SAFETY CHECK: Safe Perigee Filter
-    # =========================================================================
+    # 0. Safety Check: Filter out subterranean or immediate re-entry orbits
     if sma * (1.0 - ecc) < MIN_SAFE_PERIGEE:
-        print(f" [error] Aborting benchmark. Target orbit is unsafe.")
-        print(f"         Perigee altitude is below the 200 km limit.")
-        return
+        print(" [error] Aborting benchmark. Target orbit is unsafe.")
+        return None, 0.0, 0.0
 
-    # Generate time steps dynamically up to max_tof (every 15 minutes)
+    # Generate the time grid (15-minute intervals)
     time_steps = np.arange(0, max_tof + 1, 15 * 60)
     
-    # Attempt to route the initial state to the corresponding MoE expert
+    # Locate the correct Mixture of Experts (MoE) cell for the current state
     try:
         model_path, dataset_path = find_expert_system(sma=sma, ecc=ecc, inc=inc)
     except ValueError as e:
         print(f" [error] Routing failure: {e}")
-        return
+        return None, 0.0, 0.0
 
-    # Initialize the expert model and dataset statistics
+    # Load the expert model and its corresponding normalization statistics
     dataset = OrbitalDataset(dataset_path)
     model = ResidualPredictor(input_size=8)
     model.load_state_dict(torch.load(model_path, weights_only=True))
@@ -206,18 +214,23 @@ def run_time_domain_benchmark(sma, ecc, inc, raan, aop, ta, max_tof):
     total_ai_time = 0.0
     results_log = []
     
-    # State tracking variables
+    # Initialize the tracking variables for the numerical integration step
     curr_sma, curr_ecc, curr_inc = sma, ecc, inc
     curr_raan, curr_aop, curr_ta = raan, aop, ta
     prev_tof = 0.0
     
-    print(f" {'Time (s)':<10} | {'Radial (m)':<12} | {'In-Track (m)':<14} | {'Cross-Track (m)':<15}")
+    # Print the table header for real-time console monitoring
+    print(
+        f" {'Time (s)':<10} | {'Radial (m)':<12} | "
+        f"{'In-Track (m)':<14} | {'Cross-Track (m)':<15}"
+    )
     print("-" * 80)
 
     # =========================================================================
     # 1. PROPAGATION LOOP
     # =========================================================================
     for tof in time_steps:
+        # Skip the initial condition step (dt = 0)
         if tof == 0:
             continue 
             
@@ -231,38 +244,39 @@ def run_time_domain_benchmark(sma, ecc, inc, raan, aop, ta, max_tof):
         # --- AI Hybrid Estimate ---
         start_time = time.perf_counter()
         pos_est, vel_est = execute_ai_step(
-            curr_sma, curr_ecc, curr_inc, curr_raan, curr_aop, curr_ta, dt, model, dataset
+            curr_sma, curr_ecc, curr_inc, curr_raan, curr_aop, curr_ta,
+            dt, model, dataset
         )
         total_ai_time += (time.perf_counter() - start_time)
         
         # --- Error Calculation ---
+        # Transform the ECI error vector into the local RIC coordinate frame
         ric_error = eci_to_ric_error(pos_true, v_true, pos_est)
         err_r, err_i, err_c = ric_error
         
-        print(f" {tof:<10.1f} | {err_r:>10.2f}   | {err_i:>12.2f}   | {err_c:>13.2f}")
-        results_log.append([tof, err_r, err_i, err_c])
+        print(
+            f" {tof:<10.1f} | {err_r:>10.2f}   | "
+            f"{err_i:>12.2f}   | {err_c:>13.2f}"
+        )
         
-        # Update current state for the next step iteration
-        curr_sma, curr_ecc, curr_inc, curr_raan, curr_aop, curr_ta = eci_to_coe(MU, pos_est, vel_est)
+        # Prepend the Case ID to the row for downstream batch sorting
+        results_log.append([case_name, tof, err_r, err_i, err_c])
+        
+        # Update current orbital elements for the next recursive step
+        curr_sma, curr_ecc, curr_inc, curr_raan, curr_aop, curr_ta = \
+            eci_to_coe(MU, pos_est, vel_est)
         prev_tof = tof
 
     # =========================================================================
-    # 2. LOGGING AND PERFORMANCE METRICS
+    # 2. PERFORMANCE SUMMARY
     # =========================================================================
-    os.makedirs("data", exist_ok=True)
-    out_file = "data/benchmark_time_domain.csv"
-    with open(out_file, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerow(["Time_s", "Radial_m", "InTrack_m", "CrossTrack_m"])
-        writer.writerows(results_log)
-
     print("-" * 80)
-    print(" COMPUTATIONAL PERFORMANCE REPORT")
-    print(f" Total steps propagated : {len(time_steps) - 1}")
-    print(f" Oracle Time            : {total_oracle_time * 1000:.2f} ms")
-    print(f" AI Model Time          : {total_ai_time * 1000:.2f} ms")
-    print(f" Speedup Factor         : {total_oracle_time / total_ai_time:.2f}x faster")
-    print(f" Data saved to          : {out_file}")
+    print(
+        f" Oracle Time: {total_oracle_time * 1000:.2f} ms | "
+        f"AI Time: {total_ai_time * 1000:.2f} ms"
+    )
+    
+    return results_log, total_oracle_time, total_ai_time
 
 
 def run_space_domain_benchmark(num_samples=1000, dt=900):
@@ -381,6 +395,112 @@ def run_space_domain_benchmark(num_samples=1000, dt=900):
     print(f" Data saved to : {out_file}")
 
 
+def generate_random_test_cases(num_cases, max_tof=4 * 3600):
+    """
+    Generates a list of randomized, safe LEO orbital states for 
+    automated time-domain secular degradation testing.
+    
+    Args:
+        num_cases (int): Number of random orbital states to generate.
+        max_tof (float): Maximum Time of Flight for each case [s].
+        
+    Returns:
+        list of dict: A list containing configuration dictionaries for each test case.
+    """
+    print(f" Generating {num_cases} randomized Time-Domain test cases...")
+    random_cases = []
+    
+    # We use a while loop to reject subterranean orbits dynamically
+    while len(random_cases) < num_cases:
+        sma_cand = np.random.uniform(R_EQ + 300e3, R_EQ + 2000e3)
+        ecc_cand = np.random.uniform(0.0, 0.1)
+        
+        # Apply the safe perigee filter
+        if sma_cand * (1.0 - ecc_cand) >= MIN_SAFE_PERIGEE:
+            case = {
+                "name": f"random_LEO_{len(random_cases) + 1:02d}",
+                "sma": sma_cand,
+                "ecc": ecc_cand,
+                "inc": np.random.uniform(0.0, np.radians(90.0)),
+                "raan": np.random.uniform(0.0, 2 * np.pi),
+                "aop": np.random.uniform(0.0, 2 * np.pi),
+                "ta": np.random.uniform(0.0, 2 * np.pi),
+                "max_tof": max_tof
+            }
+            random_cases.append(case)
+            
+    return random_cases
+
+
+def run_time_domain_batch(test_cases, output_filename="data/benchmark_time_domain.csv"):
+    """
+    Manage the execution of multiple time-domain benchmark cases.
+
+    This function iterates through a list of generated orbital test cases,
+    executes the secular degradation benchmark for each, and streams all
+    results into a single consolidated CSV file. Streaming prevents RAM
+    exhaustion and avoids OS file system clutter when evaluating thousands
+    of orbits simultaneously.
+
+    Args:
+        test_cases (list[dict]): A list of dictionaries, where each dictionary
+            contains the orbital parameters and configuration for a test case.
+        output_filename (str, optional): The target file path for the unified
+            CSV output. Defaults to "data/benchmark_time_domain.csv".
+    """
+    # Ensure the output directory exists before attempting to write
+    output_dir = os.path.dirname(output_filename)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
+
+    total_batch_oracle_time = 0.0
+    total_batch_ai_time = 0.0
+    successful_cases = 0
+
+    # Open the unified CSV file in write mode to stream data continuously
+    with open(output_filename, mode="w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+
+        # Write the master header including the Case_ID for downstream sorting
+        writer.writerow(
+            ["Case_ID", "Time_s", "Radial_m", "InTrack_m", "CrossTrack_m"]
+        )
+
+        # Process and stream results sequentially to maintain low memory usage
+        for case in test_cases:
+            results, t_oracle, t_ai = run_time_domain_benchmark(
+                sma=case["sma"],
+                ecc=case["ecc"],
+                inc=case["inc"],
+                raan=case["raan"],
+                aop=case["aop"],
+                ta=case["ta"],
+                max_tof=case["max_tof"],
+                case_name=case["name"]
+            )
+
+            # Only write to the file if the orbit was safe and processed correctly
+            if results is not None:
+                writer.writerows(results)
+                successful_cases += 1
+                total_batch_oracle_time += t_oracle
+                total_batch_ai_time += t_ai
+
+    # Output the final performance summary to the console
+    print(f"\n{'=' * 80}")
+    print(" UNIFIED TIME-DOMAIN BENCHMARK COMPLETE")
+    print("=" * 80)
+    print(f" Total Orbits Simulated : {successful_cases}/{len(test_cases)}")
+    print(f" Total Oracle Time      : {total_batch_oracle_time:.2f} s")
+    print(f" Total AI Time          : {total_batch_ai_time:.2f} s")
+    
+    if total_batch_ai_time > 0:
+        speedup = total_batch_oracle_time / total_batch_ai_time
+        print(f" Global Speedup         : {speedup:.2f}x faster")
+        
+    print(f" Data stream saved to   : {output_filename}")
+
+
 # =============================================================================
 # Execution Block
 # =============================================================================
@@ -389,45 +509,27 @@ if __name__ == "__main__":
     print(" ORBITA BENCHMARK SUITE")
     print("=" * 80)
     print(" Select the validation mode:")
-    print(" 1. Time-Domain (Secular Degradation over time)")
+    print(" 1. Time-Domain (Automated Secular Degradation Battery)")
     print(" 2. Space-Domain (Global LEO Monte Carlo)")
     print(" 3. Run Both")
     
     choice = input("\n Enter choice (1/2/3): ").strip()
     
     # Time-Domain Configuration
-    test_sma = R_EQ + 600e3
-    test_ecc = 0.05
-    test_inc = np.radians(0) 
-    test_raan = 0.0
-    test_aop = 0.0
-    test_ta = 0.0
-    test_max_tof = 4 * 3600  # 4 hours of propagation
-    
+    n_cases = 100000
+    max_tof = 4 * 3600
+
     # Space-Domain Configuration
     monte_carlo_samples = 100000
     propagation_dt = 15 * 60  # 15 minutes step
     
-    if choice == '1':
-        run_time_domain_benchmark(
-            sma=test_sma, ecc=test_ecc, inc=test_inc, 
-            raan=test_raan, aop=test_aop, ta=test_ta, 
-            max_tof=test_max_tof
-        )
-    elif choice == '2':
+    if choice in ['1', '3']:
+        test_cases = generate_random_test_cases(num_cases=n_cases, max_tof=max_tof)
+        run_time_domain_batch(test_cases=test_cases)
+    if choice in ['2', '3']:
         run_space_domain_benchmark(
             num_samples=monte_carlo_samples, 
             dt=propagation_dt
         )
-    elif choice == '3':
-        run_time_domain_benchmark(
-            sma=test_sma, ecc=test_ecc, inc=test_inc, 
-            raan=test_raan, aop=test_aop, ta=test_ta, 
-            max_tof=test_max_tof
-        )
-        run_space_domain_benchmark(
-            num_samples=monte_carlo_samples, 
-            dt=propagation_dt
-        )
-    else:
+    if choice not in ['1', '2', '3']:
         print(" Invalid choice. Exiting.")

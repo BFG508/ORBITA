@@ -1,5 +1,5 @@
 """
-Module: train_finetune.py
+Script: train_finetune.py
 
 Description:
     Implements Continual Learning (Fine-Tuning) for the ORBITA framework.
@@ -12,7 +12,6 @@ Description:
 """
 
 import os
-
 import torch
 import torch.nn as nn
 import torch.optim as optim

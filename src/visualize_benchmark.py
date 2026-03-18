@@ -72,52 +72,119 @@ def save_format(output_path, description, bbox_inches='tight'):
     print(f" [saved] {description}")
 
 
-def plot_time_domain(csv_path="data/benchmark_time_domain.csv", output_filename="figures/plot_time_domain.png"):
+def plot_time_domain(csv_path="data/benchmark_time_domain.csv", output_dir="figures"):
     """
-    Generates a stacked subplot figure showing the absolute secular error 
-    accumulation over time for each individual RIC component.
+    Generate a high-performance hybrid time-domain benchmark figure 
+    from a unified batch CSV file.
+
+    It overlays hundreds of low-opacity individual propagation lines 
+    (providing context without occlusion) beneath a high-impact statistical 
+    envelope and mean line. Optimized for massive datasets using Pandas 
+    vectorized pivot tables.
+
+    Args:
+        csv_path (str, optional): Path to the consolidated CSV benchmark file. 
+            Defaults to "data/benchmark_time_domain.csv".
+        output_dir (str, optional): Path to the directory where the generated 
+            figures will be exported. Defaults to "figures".
     """
     if not os.path.exists(csv_path):
-        print(f" [error] Time-domain data not found at: {csv_path}")
+        print(f" [error] Unified time-domain data not found at: {csv_path}")
         return
-
+    
     df = pd.read_csv(csv_path)
-    df['Time_hours'] = df['Time_s'] / 3600.0
-    
-    abs_radial = np.abs(df['Radial_m'])
-    abs_intrack = np.abs(df['InTrack_m'])
-    abs_crosstrack = np.abs(df['CrossTrack_m'])
 
-    _, axes = plt.subplots(3, 1, figsize=(10, 10), sharex=True)
-    
-    axes[0].plot(df['Time_hours'], abs_radial, color=COLOR_R, linewidth=2)
+    # Convert time to hours for better readability on the X-axis
+    df['Time_hours'] = df['Time_s'] / 3600.0
+
+    # Compute absolute errors to analyze error magnitude
+    df['Abs_Radial_m'] = np.abs(df['Radial_m'])
+    df['Abs_InTrack_m'] = np.abs(df['InTrack_m'])
+    df['Abs_CrossTrack_m'] = np.abs(df['CrossTrack_m'])
+
+    # Pivot tables align all data by Time (index) and Case_ID (columns).
+    # This automatically handles stacking and ensures perfect time alignment.
+    rad_pivot = df.pivot(index='Time_hours', columns='Case_ID', values='Abs_Radial_m')
+    int_pivot = df.pivot(index='Time_hours', columns='Case_ID', values='Abs_InTrack_m')
+    crs_pivot = df.pivot(index='Time_hours', columns='Case_ID', values='Abs_CrossTrack_m')
+
+    common_time = rad_pivot.index.values
+    num_cases = rad_pivot.shape[1]
+
+    # Calculate statistics across columns (axis=1) for each time step
+    rad_mean = rad_pivot.mean(axis=1)
+    rad_p05 = rad_pivot.quantile(0.05, axis=1)
+    rad_p95 = rad_pivot.quantile(0.95, axis=1)
+
+    int_mean = int_pivot.mean(axis=1)
+    int_p05 = int_pivot.quantile(0.05, axis=1)
+    int_p95 = int_pivot.quantile(0.95, axis=1)
+
+    crs_mean = crs_pivot.mean(axis=1)
+    crs_p05 = crs_pivot.quantile(0.05, axis=1)
+    crs_p95 = crs_pivot.quantile(0.95, axis=1)
+
+    # Instantiate the figure layout
+    fig, axes = plt.subplots(3, 1, figsize=(11, 10), sharex=True)
+
+    # -------------------------------------------------------------------------
+    # LAYER 1: Plot low-opacity 'spaghetti' lines
+    # passing the entire pivot matrix directly to matplotlib is extremely fast
+    # -------------------------------------------------------------------------
+    axes[0].plot(common_time, rad_pivot.values, color=COLOR_R, alpha=0.3, linewidth=0.5, zorder=1)
+    axes[1].plot(common_time, int_pivot.values, color=COLOR_I, alpha=0.3, linewidth=0.5, zorder=1)
+    axes[2].plot(common_time, crs_pivot.values, color=COLOR_C, alpha=0.3, linewidth=0.5, zorder=1)
+
+    # -------------------------------------------------------------------------
+    # LAYER 2 & 3: Plot Statistical Envelopes and Mean Lines
+    # -------------------------------------------------------------------------
+    # Radial
+    axes[0].fill_between(common_time, rad_p05, rad_p95, color=COLOR_R, alpha=0.3, linewidth=0, zorder=2, label='5th-95th Percentile')
+    axes[0].plot(common_time, rad_mean, color=COLOR_R, linewidth=2.5, zorder=3, label='Mean Error')
     axes[0].set_ylabel("Radial Error [m]")
     axes[0].set_ylim(bottom=0)
-    axes[0].set_title("ORBITA Hybrid Propagation: Absolute Secular Error Accumulation", pad=15, fontweight='bold')
-    
-    axes[1].plot(df['Time_hours'], abs_intrack, color=COLOR_I, linewidth=2)
+    axes[0].set_title(f"ORBITA Hybrid Propagation: Secular Error Envelope ({num_cases} Cases)", pad=15, fontweight='bold')
+    axes[0].legend(loc='upper left', frameon=True, shadow=False)
+
+    # In-Track
+    axes[1].fill_between(common_time, int_p05, int_p95, color=COLOR_I, alpha=0.3, linewidth=0, zorder=2)
+    axes[1].plot(common_time, int_mean, color=COLOR_I, linewidth=2.5, zorder=3)
     axes[1].set_ylabel("In-Track Error [m]")
     axes[1].set_ylim(bottom=0)
-    
-    axes[2].plot(df['Time_hours'], abs_crosstrack, color=COLOR_C, linewidth=2)
+
+    # Cross-Track
+    axes[2].fill_between(common_time, crs_p05, crs_p95, color=COLOR_C, alpha=0.3, linewidth=0, zorder=2)
+    axes[2].plot(common_time, crs_mean, color=COLOR_C, linewidth=2.5, zorder=3)
     axes[2].set_ylabel("Cross-Track Error [m]")
     axes[2].set_xlabel("Time of Flight [h]", fontsize=12, fontweight='bold')
-    axes[0].set_xlim(left=15.0/60)
-    axes[0].set_xlim(right=df['Time_hours'].max())
+    axes[2].set_xlim(left=15.0/60, right=common_time.max())
     axes[2].set_ylim(bottom=0)
-    
+
+    # Global layout adjustments
     for ax in axes:
-        ax.grid(True, linestyle='-', alpha=0.6)
+        ax.grid(True, linestyle='-', alpha=0.6, zorder=0)
         
     plt.tight_layout()
-    save_format(output_filename, "Time-Domain Secular Error Accumulation")
+
+    # Define output path and save
+    output_path = os.path.join(output_dir, "plot_time_domain.png")
+    save_format(output_path, f"Detailed Hybrid Time-Domain Analytics ({num_cases} runs)")
     plt.close()
 
 
 def plot_space_domain_distributions(df, output_prefix):
     """
-    Generates statistical distribution panels using the absolute magnitude 
-    of the errors. Consolidates the statistical markers into a single global legend.
+    Generates statistical distribution panels (histograms) using the absolute 
+    magnitude of the RIC errors. Consolidates the statistical markers (mean 
+    and 95th percentile) into a single global legend to maximize data-ink ratio.
+    
+    Args:
+        df (pd.DataFrame): The space-domain dataset containing the precomputed 
+            absolute RIC error columns ('Abs_Radial_m', 'Abs_InTrack_m', 
+            'Abs_CrossTrack_m').
+        output_prefix (str): The base directory path and filename prefix used 
+            for the exported figures. The specific suffix '_histograms.png' 
+            (and '.svg') will be appended automatically.
     """
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
     components = [
@@ -160,6 +227,16 @@ def plot_space_domain_scatter_trends(df, output_prefix, max_samples=5000):
     Generates scatter plots correlating the absolute radial error with orbital parameters.
     Uses random subsampling and rasterized scatters to drastically reduce 
     LOWESS calculation time and SVG export bloat.
+    
+    Args:
+        df (pd.DataFrame): The space-domain dataset containing orbital parameters 
+            ('SMA_km', 'ECC', 'INC_rad') and absolute errors ('Abs_Radial_m').
+        output_prefix (str): The base directory path and filename prefix used 
+            for the exported figures. The specific suffix '_scatter.png' 
+            (and '.svg') will be appended automatically.
+        max_samples (int, optional): Maximum number of data points to plot and 
+            use for the LOWESS trendline calculation. This prevents O(N^2) 
+            algorithmic bottlenecks and massive vector file sizes. Defaults to 5000.
     """
     if len(df) > max_samples:
         df_plot = df.sample(n=max_samples, random_state=42)
@@ -174,11 +251,10 @@ def plot_space_domain_scatter_trends(df, output_prefix, max_samples=5000):
         line_kws={'color': 'black', 'linewidth': 2}, lowess=True
     )
     axes[0].set_title("Absolute Radial Error vs. Altitude", fontsize=12, fontweight='bold')
-    axes[0].set_xlabel("Semi-Major Axis [km]")
+    axes[0].set_xlabel("Altitude [km]")
     axes[0].set_ylabel("Absolute Radial Error [m]")
     axes[0].set_ylim(bottom=0)
-    axes[0].set_xlim(left=(df_plot['SMA_km'] - R_EQ/1e3).min())
-    axes[0].set_xlim(right=(df_plot['SMA_km'] - R_EQ/1e3).max())
+    axes[0].set_xlim(left=(df_plot['SMA_km'] - R_EQ/1e3).min(), right=(df_plot['SMA_km'] - R_EQ/1e3).max())
     
     sns.regplot(
         x=df_plot['ECC'], y=df_plot['Abs_Radial_m'], ax=axes[1], 
@@ -188,8 +264,7 @@ def plot_space_domain_scatter_trends(df, output_prefix, max_samples=5000):
     axes[1].set_title("Absolute Radial Error vs. Eccentricity", fontsize=12, fontweight='bold')
     axes[1].set_xlabel("Eccentricity [-]")
     axes[1].set_ylim(bottom=0)
-    axes[1].set_xlim(left=df_plot['ECC'].min())
-    axes[1].set_xlim(right=df_plot['ECC'].max())
+    axes[1].set_xlim(left=df_plot['ECC'].min(), right=df_plot['ECC'].max())
     
     sns.regplot(
         x=np.rad2deg(df_plot['INC_rad']), y=df_plot['Abs_Radial_m'], ax=axes[2], 
@@ -199,8 +274,7 @@ def plot_space_domain_scatter_trends(df, output_prefix, max_samples=5000):
     axes[2].set_title("Absolute Radial Error vs. Inclination", fontsize=12, fontweight='bold')
     axes[2].set_xlabel("Inclination [deg]")
     axes[2].set_ylim(bottom=0)
-    axes[2].set_xlim(left=(np.rad2deg(df_plot['INC_rad'])).min())
-    axes[2].set_xlim(right=(np.rad2deg(df_plot['INC_rad'])).max())
+    axes[2].set_xlim(left=(np.rad2deg(df_plot['INC_rad'])).min(), right=(np.rad2deg(df_plot['INC_rad'])).max())
 
     for i, ax in enumerate(axes):
         ax.grid(True, linestyle='-', alpha=0.6)
@@ -218,7 +292,15 @@ def plot_space_domain_scatter_trends(df, output_prefix, max_samples=5000):
 def plot_domain_heatmap(df, output_filename="figures/plot_space_domain_heatmap.png"):
     """
     Generates a clean Hexbin Heatmap using the ESTHER 'plasma' colormap 
-    to map the topological error distribution.
+    to map the topological error distribution across the LEO parameter space.
+    
+    Args:
+        df (pd.DataFrame): The space-domain dataset containing orbital parameters 
+            ('SMA_km', 'ECC') for the 2D grid, and the absolute in-track error 
+            ('Abs_InTrack_m') used to compute the mean error color density.
+        output_filename (str, optional): The exact file path where the generated 
+            heatmap figure (.png and .svg) will be exported. Defaults to 
+            "figures/plot_space_domain_heatmap.png".
     """
     _, ax = plt.subplots(figsize=(10, 8))
     
@@ -231,7 +313,7 @@ def plot_domain_heatmap(df, output_filename="figures/plot_space_domain_heatmap.p
     cbar = plt.colorbar(hb, ax=ax)
     cbar.set_label('Mean Absolute In-Track Error [m]', labelpad=20, fontsize=12.5, fontweight='bold')
     
-    ax.set_xlabel("Semi-Major Axis [km]", fontsize=12)
+    ax.set_xlabel("Altitude [km]", fontsize=12)
     ax.set_ylabel("Eccentricity [-]", fontsize=12)
     ax.set_title("MoE Topological Absolute Error Density Map", pad=15, fontweight='bold')
     ax.grid(True, linestyle='-', alpha=0.6)
@@ -243,8 +325,17 @@ def plot_domain_heatmap(df, output_filename="figures/plot_space_domain_heatmap.p
 
 def plot_regime_violin(df, output_filename="figures/plot_space_domain_violin.png"):
     """
-    Categorizes the dataset into LEO regimes and plots a Violin distribution 
-    using a custom gradient extracted from the 'plasma' colormap.
+    Categorizes the dataset into specific LEO regimes (Low, Medium, High) 
+    based on altitude and plots a Violin distribution using a custom 
+    gradient extracted from the 'plasma' colormap.
+    
+    Args:
+        df (pd.DataFrame): The space-domain dataset containing the semi-major 
+            axis ('SMA_km') used to calculate altitude, and the absolute 
+            radial error ('Abs_Radial_m') for the probability density.
+        output_filename (str, optional): The target file path where the 
+            generated violin plot (.png and .svg) will be exported. 
+            Defaults to "figures/plot_space_domain_violin.png".
     """
     df['Altitude_km'] = df['SMA_km'] - R_EQ/1e3
     bins = [0, 600, 1200, 2000]
@@ -275,7 +366,17 @@ def plot_regime_violin(df, output_filename="figures/plot_space_domain_violin.png
 
 def plot_error_cdf(df, output_filename="figures/plot_space_domain_cdf.png"):
     """
-    Generates a Cumulative Distribution Function (CDF) plot for absolute RIC errors.
+    Generates a Cumulative Distribution Function (CDF) plot for the absolute 
+    RIC errors, establishing the 95th percentile confidence bounds for the 
+    neural network's predictive accuracy.
+    
+    Args:
+        df (pd.DataFrame): The space-domain dataset containing the precomputed 
+            absolute error columns for all three spatial dimensions 
+            ('Abs_Radial_m', 'Abs_InTrack_m', 'Abs_CrossTrack_m').
+        output_filename (str, optional): The exact file path where the 
+            generated CDF figure (.png and .svg) will be exported. 
+            Defaults to "figures/plot_space_domain_cdf.png".
     """
     plt.figure(figsize=(9, 6))
     
@@ -298,10 +399,15 @@ def plot_error_cdf(df, output_filename="figures/plot_space_domain_cdf.png"):
     plt.close()
 
 
-def process_space_domain(csv_path="data/benchmark_space_domain.csv"):
+def plot_space_domain(csv_path="data/benchmark_space_domain.csv"):
     """
-    Orchestrates all space-domain plotting functions and precomputes 
-    the absolute magnitude vectors.
+    Orchestrates all space-domain plotting functions by loading the Monte Carlo 
+    benchmark data and precomputing the absolute error magnitude vectors.
+    
+    Args:
+        csv_path (str, optional): Path to the space-domain benchmark CSV file 
+            generated by the global LEO coverage simulation. Defaults to 
+            "data/benchmark_space_domain.csv".
     """
     if not os.path.exists(csv_path):
         print(f" [error] Space-domain data not found at: {csv_path}")
@@ -335,11 +441,8 @@ if __name__ == "__main__":
     os.makedirs("data", exist_ok=True)
     os.makedirs("figures", exist_ok=True)
     
-    time_csv = "data/benchmark_time_domain.csv"
-    space_csv = "data/benchmark_space_domain.csv"
-    
-    plot_time_domain(time_csv)
-    process_space_domain(space_csv)
+    plot_time_domain()
+    plot_space_domain()
     
     print("=" * 80)
     print(" VISUALIZATION EXPORT COMPLETE.")

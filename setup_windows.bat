@@ -1,7 +1,7 @@
 @echo off
-echo ===================================================
-echo 🛰️  ORBITA: INITIALIZING SETUP
-echo ===================================================
+echo ================================================
+echo ORBITA: INITIALIZING SETUP
+echo ================================================
 
 echo.
 echo [1/3] Cloning the repository...
@@ -18,7 +18,7 @@ echo [3/3] Installing dependencies...
 pip install -r requirements.txt
 
 echo.
-echo ===================================================
-echo ✅  ALL TASKS COMPLETED SUCCESSFULLY.
-echo ===================================================
+echo ================================================
+echo ALL TASKS COMPLETED SUCCESSFULLY
+echo ================================================
 pause

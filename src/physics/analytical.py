@@ -14,6 +14,7 @@ Description:
 
 import numpy as np
 
+
 def compute_general_solution(J2, J3, R, a, e, INC, Omega, omega, theta_0, X0, n, t):
 
     x0  = X0[0]

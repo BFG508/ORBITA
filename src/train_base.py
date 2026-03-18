@@ -20,6 +20,7 @@ import torch.optim as optim
 from ml.dataset import get_dataloaders
 from ml.architecture import ResidualPredictor
 
+
 def train_model(csv_file, epochs=150, batch_size=512, lr=1e-3):
     """
     Executes the training and validation loop for the neural network.

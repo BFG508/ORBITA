@@ -1,5 +1,5 @@
 """
-Module: generate_finetune_dataset.py
+Script: generate_finetune_dataset.py
 
 Description:
     Implements Pool-based Active Learning via Uncertainty Sampling for the 
@@ -19,8 +19,6 @@ Description:
 
 import os
 import csv
-import time
-
 import numpy as np
 import torch
 

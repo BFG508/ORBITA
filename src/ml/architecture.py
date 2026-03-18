@@ -13,6 +13,7 @@ Description:
 import torch
 import torch.nn as nn
 
+
 class ResidualBlock(nn.Module):
     """
     Deep building block with skip connections.

@@ -1,5 +1,5 @@
 """
-Module: simulate_mission.py
+Script: simulate_mission.py
 
 Description:
     Final flight simulator implementing the 3D Mixture of Experts (MoE) routing.

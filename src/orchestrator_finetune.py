@@ -1,5 +1,5 @@
 """
-Module: orchestrator_finetune.py
+Script: orchestrator_finetune.py
 
 Description:
     Automates the Continual Learning and Active Learning pipeline across the 
