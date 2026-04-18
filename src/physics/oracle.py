@@ -296,7 +296,14 @@ def get_ground_truth(sma, ecc, inc, raan, aop, ta, tof):
         atol=1e-5
     )
     
-    # 4. Extract the state at the final integration step
+    # 4. Verify integration convergence before extracting results
+    if not res.success:
+        raise RuntimeError(
+            f"Numerical integration failed: {res.message} "
+            f"(SMA={sma:.0f}m, ECC={ecc:.4f}, TOF={tof:.1f}s)"
+        )
+
+    # 5. Extract the state at the final integration step
     r_final = res.y[0:3, -1]
     v_final = res.y[3:6, -1]
     

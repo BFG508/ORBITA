@@ -54,6 +54,9 @@ plots/
 .ipynb_checkpoints/
 */.ipynb_checkpoints/*
 
+# Testing
+.pytest_cache/
+
 # OS Generated Files
 .DS_Store
 .DS_Store?

@@ -143,8 +143,10 @@ def get_dataloaders(csv_file, batch_size=32, train_split=0.8, base_stats=None):
     val_size = len(full_dataset) - train_size
     
     # Split the dataset randomly to ensure unbiased training/validation
+    # A fixed seed guarantees reproducible splits across executions
+    generator = torch.Generator().manual_seed(42)
     train_dataset, val_dataset = torch.utils.data.random_split(
-        full_dataset, [train_size, val_size]
+        full_dataset, [train_size, val_size], generator=generator
     )
     
     # Create the data loaders

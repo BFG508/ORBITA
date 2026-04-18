@@ -2,13 +2,13 @@
 Script: orchestrator_finetune.py
 
 Description:
-    Automates the Continual Learning and Active Learning pipeline across the 
+    Automates the Continual Learning and Active Learning pipeline across the
     entire 3D grid of Mixture of Experts (MoE) models in the ORBITA framework.
-    
-    This orchestrator scans the designated models directory for baseline 
-    predictors, dynamically reconstructs their physical orbital domain from 
-    their nomenclature, and triggers a targeted data mining process via 
-    uncertainty sampling. Finally, it executes a fine-tuning loop to mitigate 
+
+    This orchestrator scans the designated models directory for baseline
+    predictors, dynamically reconstructs their physical orbital domain from
+    their nomenclature, and triggers a targeted data mining process via
+    uncertainty sampling. Finally, it executes a fine-tuning loop to mitigate
     boundary approximation errors without inducing catastrophic forgetting.
 """
 
@@ -20,84 +20,99 @@ from generate_finetune_dataset import generate_active_learning_dataset
 from train_finetune import fine_tune_model
 
 from physics.oracle import R_EQ
+from config import (
+    AL_POOL_SIZE, AL_HARD_CASES, AL_REPLAY_CASES,
+    FINETUNE_EPOCHS, FINETUNE_LEARNING_RATE
+)
 
 
 def run_fleet_finetuning(
-    pool_size=100000, 
-    hard_cases=10000, 
-    replay_cases=5000, 
-    epochs=50, 
+    pool_size=100000,
+    hard_cases=10000,
+    replay_cases=5000,
+    epochs=50,
     lr=1e-5
 ):
     """
-    Patrols the models directory, parses domain bounds, and initiates the 
+    Patrols the models directory, parses domain bounds, and initiates the
     continual learning upgrade for each baseline expert model.
-    
+
     Args:
-        pool_size (int): Number of random orbital states to evaluate for 
-                         epistemic uncertainty.
-        hard_cases (int): Number of maximum-uncertainty cases to extract.
-        replay_cases (int): Number of nominal cases to retain (Replay Buffer).
-        epochs (int): Number of training epochs for the fine-tuning phase.
-        lr (float): Highly restricted learning rate to preserve core physics.
+        pool_size (int): Random orbital states to evaluate for uncertainty.
+        hard_cases (int): Maximum-uncertainty cases to extract.
+        replay_cases (int): Nominal cases to retain (Replay Buffer).
+        epochs (int): Training epochs for the fine-tuning phase.
+        lr (float): Restricted learning rate to preserve core physics.
     """
     print("=" * 80)
     print(" ORBITA FACTORY: FLEET-WIDE CONTINUAL LEARNING PIPELINE")
     print("=" * 80)
-    
+
     # Scan for base models, strictly ignoring those already fine-tuned
     all_models = glob.glob("models/orbita_predictor_*.pth")
     base_models = [m for m in all_models if "_finetuned" not in m]
-    
+
     if not base_models:
-        print(" [info] No base models found. Ensure orchestrator_base.py has executed.")
+        print(" [info] No base models found. Ensure orchestrator_base.py"
+              " has executed.")
         return
-        
+
     total_models = len(base_models)
-    print(f" [info] Found {total_models} base expert models awaiting upgrade.\n")
+    print(f" [info] Found {total_models} base expert models awaiting"
+          " upgrade.\n")
 
     for idx, model_path in enumerate(base_models, 1):
         basename = os.path.basename(model_path)
-        params_str = basename.replace("orbita_predictor_", "").replace(".pth", "")
+        params_str = basename.replace(
+            "orbita_predictor_", ""
+        ).replace(".pth", "")
         parts = params_str.split("_")
-        
+
         if len(parts) != 3:
-            print(f" [warn] Skipping {basename}: Unrecognized nomenclature format.")
+            print(f" [warn] Skipping {basename}: Unrecognized nomenclature"
+                  " format.")
             continue
-            
-        # Verify if the upgraded version of this specific expert already exists
-        finetuned_model_path = f"models/orbita_predictor_{params_str}_finetuned.pth"
+
+        # Verify if the upgraded version already exists
+        finetuned_model_path = (
+            f"models/orbita_predictor_{params_str}_finetuned.pth"
+        )
         if os.path.exists(finetuned_model_path):
-            print(f" [info] Skipping EXPERT {idx}/{total_models}: '{params_str}' "
-                  f"already fine-tuned.")
+            print(f" [info] Skipping EXPERT {idx}/{total_models}:"
+                  f" '{params_str}' already fine-tuned.")
             continue
-        
+
         print("-" * 80)
         print(f" UPGRADING EXPERT {idx}/{total_models}: {params_str}")
         print("-" * 80)
-        
-        # Parse physical domain boundaries directly from the nomenclature
+
+        # Parse physical domain boundaries from the nomenclature
         alt_str, ecc_str, inc_str = parts
-        
+
         alt_min_km, alt_max_km = map(float, alt_str.split("-"))
         ecc_min, ecc_max = map(float, ecc_str.split("-"))
         inc_min_deg, inc_max_deg = map(float, inc_str.split("-"))
-        
-        # Convert boundaries to standard astrodynamic units (meters, radians)
-        sma_bounds = (R_EQ + alt_min_km * 1000.0, R_EQ + alt_max_km * 1000.0)
+
+        # Convert to standard astrodynamic units (meters, radians)
+        sma_bounds = (
+            R_EQ + alt_min_km * 1000.0,
+            R_EQ + alt_max_km * 1000.0
+        )
         ecc_bounds = (ecc_min, ecc_max)
         inc_bounds = (np.radians(inc_min_deg), np.radians(inc_max_deg))
-        
-        # File Routing
+
+        # File routing
         base_csv = f"data/orbita_dataset_{params_str}.csv"
         finetune_csv = f"data/orbita_finetune_{params_str}.csv"
-        
+
         if not os.path.exists(base_csv):
-            print(f" [error] Missing base dataset {base_csv} for normalization. Skipping.")
+            print(f" [error] Missing base dataset {base_csv} for"
+                  " normalization. Skipping.")
             continue
-            
+
         # --- PIPELINE STEP 1: ACTIVE LEARNING DATA MINING ---
-        print(" [step 1] Mining critical divergence cases via uncertainty sampling...")
+        print(" [step 1] Mining critical divergence cases via uncertainty"
+              " sampling...")
         generate_active_learning_dataset(
             model_path=model_path,
             original_csv_path=base_csv,
@@ -109,9 +124,10 @@ def run_fleet_finetuning(
             hard_cases=hard_cases,
             replay_cases=replay_cases
         )
-        
+
         # --- PIPELINE STEP 2: CONTINUAL LEARNING ---
-        print("\n [step 2] Injecting residual corrections (Fine-Tuning)...")
+        print("\n [step 2] Injecting residual corrections"
+              " (Fine-Tuning)...")
         fine_tune_model(
             base_model_path=model_path,
             fine_tune_csv=finetune_csv,
@@ -119,23 +135,23 @@ def run_fleet_finetuning(
             batch_size=256,
             lr=lr
         )
-        
+
         print(f"\n [info] EXPERT {idx} UPGRADE COMPLETE.")
-        
+
     print("=" * 80)
     print(" FLEET-WIDE FINE-TUNING FINISHED SUCCESSFULLY.")
     print("=" * 80)
 
 
 # =============================================================================
-# Execution block
+# EXECUTION BLOCK
 # =============================================================================
 if __name__ == "__main__":
     # Configure production-level continual learning parameters
     run_fleet_finetuning(
-        pool_size=100000,     # Candidate pool evaluation volume
-        hard_cases=5000,      # Maximum-uncertainty extraction volume
-        replay_cases=15000,   # Nominal retention volume to mitigate amnesia
-        epochs=50,            # Weight adjustment cycles
-        lr=1e-5               # Highly restricted learning rate
+        pool_size=AL_POOL_SIZE,
+        hard_cases=AL_HARD_CASES,
+        replay_cases=AL_REPLAY_CASES,
+        epochs=FINETUNE_EPOCHS,
+        lr=FINETUNE_LEARNING_RATE
     )

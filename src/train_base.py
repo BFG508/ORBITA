@@ -2,142 +2,246 @@
 Script: train_base.py
 
 Description:
-    Standard PyTorch training loop for the ORBITA ResidualPredictor.
-    
+    Standard PyTorch training loop for the ORBITA framework.
+
     Features flight-grade training dynamics:
-    Loads a dynamically generated regime-specific dataset, trains the 
-    deep neural network to predict the 6 Modified Equinoctial Elements (MEE) 
-    residual errors, and uses an aggressive learning rate scheduler 
-    (ReduceLROnPlateau) to squeeze the maximum float32 precision 
+    Loads a dynamically generated regime-specific dataset, trains the
+    selected neural network architecture to predict the 6 Modified Equinoctial
+    Elements (MEE) residual errors, and uses an aggressive learning rate
+    scheduler (ReduceLROnPlateau) to squeeze the maximum float32 precision
     out of the network before saving the best model weights.
+
+    Includes Early Stopping to avoid wasted computation when the model
+    converges, and TensorBoard logging for interactive training diagnostics.
+
+    Upgraded to support Ablation Studies: Dynamically instantiates different
+    baseline architectures (ResNet, Linear, MLP, LSTM) via command-line arguments.
 """
 
 import os
+import argparse
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torch.utils.tensorboard import SummaryWriter
 
 from ml.dataset import get_dataloaders
-from ml.architecture import ResidualPredictor
+from ml.architecture import (
+    ResidualPredictor,
+    LinearBaseline,
+    MLPPredictor,
+    LSTMPredictor
+)
 
 
-def train_model(csv_file, epochs=150, batch_size=512, lr=1e-3):
+def train_model(
+    csv_file,
+    model_type="resnet",
+    epochs=150,
+    batch_size=512,
+    lr=1e-3,
+    early_stopping_patience=20
+):
     """
-    Executes the training and validation loop for the neural network.
-    Automatically generates the output .pth filename based on the input dataset.
-    
+    Executes the training and validation loop for the selected neural network.
+    Automatically generates the output .pth filename based on the input dataset
+    and the chosen architecture model.
+
     Args:
         csv_file (str): Path to the training dataset CSV.
+        model_type (str): Architecture to train
+            ('resnet', 'linear', 'mlp', 'lstm').
         epochs (int): Maximum number of training epochs.
-        batch_size (int): Number of samples per batch (optimized at 512 for stability).
+        batch_size (int): Number of samples per batch.
         lr (float): Initial learning rate for the Adam optimizer.
+        early_stopping_patience (int): Number of epochs without val_loss
+            improvement before terminating training early. Set to `epochs`
+            to effectively disable early stopping.
     """
-    
-    # Dynamically determine the model save path based on the CSV filename
+
+    # 1. Dynamically determine the model save path
     base_name = os.path.basename(csv_file)
     name_without_ext = os.path.splitext(base_name)[0]
 
-    # Replace 'dataset' with 'predictor' for the saved model weights
-    model_filename = name_without_ext.replace("dataset", "predictor") + ".pth"
+    # Differentiate saved weights by architecture type to avoid overwriting
+    target_prefix = f"predictor_{model_type}"
+    model_filename = name_without_ext.replace(
+        "dataset", target_prefix
+    ) + ".pth"
     model_save_path = f"models/{model_filename}"
 
     print("-" * 80)
-    print(" Starting neural network training (expert regime)")
+    print(f" Starting training (Architecture: {model_type.upper()})")
     print(f" Input dataset : {csv_file}")
     print(f" Output model  : {model_save_path}")
+    print(f" Early stopping: patience={early_stopping_patience} epochs")
     print("-" * 80)
-    
-    # 1. Load data
-    if not os.path.exists(csv_file):
-        raise FileNotFoundError(f"Dataset not found at {csv_file}. Run generate_dataset.py first.")
-        
-    train_loader, val_loader, dataset = get_dataloaders(csv_file, batch_size=batch_size)
-    print(f" [info] Training samples: {len(train_loader.dataset)} | Validation samples: {len(val_loader.dataset)}\n")
-    
-    # 2. Initialize network, loss function, and optimizer
-    model = ResidualPredictor(input_size=8)
-    criterion = nn.MSELoss()  
 
-    # L2 regularization (weight_decay) kept extremely low (1e-6) to allow 
-    # the network to fit the exact deterministic physics without artificial smoothing
+    # 2. Load data
+    if not os.path.exists(csv_file):
+        raise FileNotFoundError(
+            f"Dataset not found at {csv_file}. "
+            "Run generate_dataset.py first."
+        )
+
+    train_loader, val_loader, dataset = get_dataloaders(
+        csv_file, batch_size=batch_size
+    )
+    print(f" [info] Training samples: {len(train_loader.dataset)}"
+          f" | Validation samples: {len(val_loader.dataset)}\n")
+
+    # 3. Instantiate the requested network architecture
+    model_type = model_type.lower()
+    if model_type == "resnet":
+        model = ResidualPredictor(input_size=8)
+    elif model_type == "linear":
+        model = LinearBaseline(input_size=8)
+    elif model_type == "mlp":
+        model = MLPPredictor(input_size=8)
+    elif model_type == "lstm":
+        model = LSTMPredictor(input_size=8)
+    else:
+        raise ValueError(
+            f"Unsupported model_type: '{model_type}'. "
+            "Choose from: resnet, linear, mlp, lstm."
+        )
+
+    criterion = nn.MSELoss()
+
+    # L2 regularization (weight_decay) kept extremely low (1e-6) to allow
+    # the network to fit the exact deterministic physics without smoothing
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-6)
-    
+
     # Learning rate scheduler:
     # Reduces LR by 50% if validation loss plateaus for 10 epochs.
     # Stops dropping at 1e-7 to avoid float32 precision breakdown.
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, 
-        mode='min', 
-        factor=0.5, 
-        patience=10, 
+        optimizer,
+        mode='min',
+        factor=0.5,
+        patience=10,
         min_lr=1e-7
     )
-    
+
     best_val_loss = float('inf')
+    epochs_without_improvement = 0
     os.makedirs("models", exist_ok=True)
 
+    # 4. TensorBoard logging
+    log_dir = f"logs/{name_without_ext}_{model_type}"
+    writer = SummaryWriter(log_dir=log_dir)
+    print(f" [info] TensorBoard logs: {log_dir}\n")
+
     # Console output header
-    print(f"{'Epoch':<7} | {'Train Loss':<12} | {'Validation Loss':<12} | {'Learning Rate':<10} | {'Status'}")
+    print(f"{'Epoch':<7} | {'Train Loss':<12} | {'Val Loss':<12}"
+          f" | {'LR':<10} | {'Status'}")
     print("-" * 80)
 
-    # 3. Epoch loop
+    # 5. Epoch loop
     for epoch in range(epochs):
 
         # --- Training phase ---
         model.train()
         train_loss = 0.0
-        
+
         for batch_x, batch_y in train_loader:
             optimizer.zero_grad()                  # Clear old gradients
             predictions = model(batch_x)           # Forward pass
-            loss = criterion(predictions, batch_y) # Compute error
+            loss = criterion(predictions, batch_y)  # Compute error
             loss.backward()                        # Backward pass
             optimizer.step()                       # Update weights
-            
+
             train_loss += loss.item() * batch_x.size(0)
-            
+
         train_loss /= len(train_loader.dataset)
-        
+
         # --- Validation phase ---
         model.eval()
         val_loss = 0.0
-        
-        with torch.no_grad(): # Disable gradient calculation for validation
+
+        with torch.no_grad():  # Disable gradient calc for validation
             for batch_x, batch_y in val_loader:
                 predictions = model(batch_x)
                 loss = criterion(predictions, batch_y)
                 val_loss += loss.item() * batch_x.size(0)
-                
+
         val_loss /= len(val_loader.dataset)
-        
+
         # Capture current learning rate before scheduler updates it
         current_lr = optimizer.param_groups[0]['lr']
-        
+
         # Trigger scheduler
-        # The scheduler monitors the validation loss. If it stops improving, it cuts the LR.
         scheduler.step(val_loss)
-        
-        # 4. Save the best model dynamically
+
+        # Log metrics to TensorBoard
+        writer.add_scalar("Loss/train", train_loss, epoch)
+        writer.add_scalar("Loss/val", val_loss, epoch)
+        writer.add_scalar("LearningRate", current_lr, epoch)
+
+        # 6. Save the best model dynamically
         status_mark = ""
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             torch.save(model.state_dict(), model_save_path)
             status_mark = "[saved]"
-            
-        # 5. Print progress every 10 epochs or if a new best is found in late stages
-        if (epoch + 1) % 10 == 0 or epoch == 0 or (epoch > 100 and status_mark == "[saved]"):
-            print(f"{(epoch+1):03d}/{epochs} | {train_loss:.7f}    | {val_loss:.7f}       | {current_lr:.2e}      | {status_mark}")
-            
+            epochs_without_improvement = 0
+        else:
+            epochs_without_improvement += 1
+
+        # 7. Print progress
+        show_progress = (
+            (epoch + 1) % 10 == 0
+            or epoch == 0
+            or (epoch > 100 and status_mark == "[saved]")
+        )
+        if show_progress:
+            print(
+                f"{(epoch+1):03d}/{epochs} | {train_loss:.7f}    "
+                f"| {val_loss:.7f}       | {current_lr:.2e}  "
+                f"    | {status_mark}"
+            )
+
+        # 8. Early stopping check
+        if epochs_without_improvement >= early_stopping_patience:
+            print(
+                f"\n [early stop] No improvement for "
+                f"{early_stopping_patience} epochs. "
+                f"Stopping at epoch {epoch + 1}."
+            )
+            break
+
+    writer.close()
+
     print("-" * 80)
     print(f" Training complete. Best weights saved to '{model_save_path}'")
     print(f" Ultimate validation loss achieved: {best_val_loss:.8f}")
 
 
 # =============================================================================
-# Execution Block
+# EXECUTION BLOCK
 # =============================================================================
 if __name__ == "__main__":
-    # Define the specific target dataset generated by generate_dataset.py
-    target_csv = "data/orbita_dataset_300-2000_0.0000-0.1000_0-90.csv"
-    
-    train_model(csv_file=target_csv)
+    # Setup argparse for Ablation Study execution
+    parser = argparse.ArgumentParser(
+        description="ORBITA Model Training Suite"
+    )
+
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default="data/orbita_dataset_300-2000_0.0000-0.1000_0-90.csv",
+        help="Path to the generated training dataset."
+    )
+
+    parser.add_argument(
+        "--model_type",
+        type=str,
+        choices=["resnet", "linear", "mlp", "lstm"],
+        default="resnet",
+        help="Select the neural architecture to train."
+    )
+
+    args = parser.parse_args()
+
+    # Execute training with the selected parameters
+    train_model(csv_file=args.dataset, model_type=args.model_type)
