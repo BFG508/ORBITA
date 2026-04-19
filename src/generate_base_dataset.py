@@ -15,19 +15,18 @@ Description:
     Each integration is independent, making this embarrassingly parallel.
 """
 
-import os
 import csv
-import numpy as np
-from multiprocessing import Pool, cpu_count
+import os
 from functools import partial
+from multiprocessing import Pool, cpu_count
 
-from physics.residuals import compute_mee_residuals
-from config import (
-    MIN_SAFE_PERIGEE, RAAN_BOUNDS, AOP_BOUNDS, TA_BOUNDS,
-    MAX_TOF_SECONDS, TOTAL_SMA_BOUNDS, TOTAL_ECC_BOUNDS,
-    TOTAL_INC_BOUNDS, SAMPLES_PER_EXPERT
-)
+import numpy as np
+
+from config import (AOP_BOUNDS, MAX_TOF_SECONDS, MIN_SAFE_PERIGEE, RAAN_BOUNDS,
+                    SAMPLES_PER_EXPERT, TA_BOUNDS, TOTAL_ECC_BOUNDS,
+                    TOTAL_INC_BOUNDS, TOTAL_SMA_BOUNDS)
 from physics.oracle import R_EQ
+from physics.residuals import compute_mee_residuals
 
 
 def _generate_single_sample(
@@ -38,7 +37,7 @@ def _generate_single_sample(
     raan_bounds,
     aop_bounds,
     ta_bounds,
-    tof_bounds
+    tof_bounds,
 ):
     """
     Generates a single valid sample: random orbital state + MEE residuals.
@@ -91,7 +90,7 @@ def generate_training_data(
     aop_bounds,
     ta_bounds,
     tof_bounds,
-    num_workers=None
+    num_workers=None,
 ):
     """
     Samples the parameter space, runs both orbital models, and saves the
@@ -116,6 +115,12 @@ def generate_training_data(
     if num_workers is None:
         num_workers = max(1, cpu_count() - 1)
 
+    if os.path.exists(output_file):
+        print(
+            f" [info] Skipping data generation: {output_file} already exists."
+        )
+        return
+
     print("-" * 70)
     print(" INITIATING ORBITA DATASET GENERATION")
     print(f" Target samples : {int(num_samples)}")
@@ -135,40 +140,68 @@ def generate_training_data(
         raan_bounds=raan_bounds,
         aop_bounds=aop_bounds,
         ta_bounds=ta_bounds,
-        tof_bounds=tof_bounds
+        tof_bounds=tof_bounds,
     )
 
     # Over-sample to account for rejected orbits (perigee safety filter)
     oversample_factor = 1.15
     results = []
+    consecutive_empty_batches = 0
+    max_consecutive_empty = 1000
 
     with Pool(processes=num_workers) as pool:
         while len(results) < num_samples:
             remaining = int(num_samples) - len(results)
             pool_size = int(remaining * oversample_factor) + 100
 
-            print(f" [info] Dispatching {pool_size} candidates"
-                  f" to {num_workers} workers...")
+            print(
+                f" [info] Dispatching {pool_size} candidates"
+                f" to {num_workers} workers..."
+            )
 
             batch = pool.map(worker_fn, range(pool_size))
 
             # Filter out None results (rejected by perigee check)
             valid = [r for r in batch if r is not None]
-            results.extend(valid)
 
-            print(f" [info] Progress: {min(len(results), int(num_samples))}"
-                  f"/{int(num_samples)} valid samples collected.")
+            if len(valid) == 0:
+                consecutive_empty_batches += 1
+                if consecutive_empty_batches >= max_consecutive_empty:
+                    raise RuntimeError(
+                        f"Failed to generate valid orbits {max_consecutive_empty} times. Range might be physically invalid."
+                    )
+            else:
+                consecutive_empty_batches = 0
+                results.extend(valid)
+
+            print(
+                f" [info] Progress: {min(len(results), int(num_samples))}"
+                f"/{int(num_samples)} valid samples collected."
+            )
 
     # Trim to exact requested count
-    results = results[:int(num_samples)]
+    results = results[: int(num_samples)]
 
     # Write results to CSV
-    with open(output_file, mode='w', newline='') as f:
+    with open(output_file, mode="w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow([
-            "p", "f", "g", "h", "k", "L", "TOF",
-            "err_p", "err_f", "err_g", "err_h", "err_k", "err_L"
-        ])
+        writer.writerow(
+            [
+                "p",
+                "f",
+                "g",
+                "h",
+                "k",
+                "L",
+                "TOF",
+                "err_p",
+                "err_f",
+                "err_g",
+                "err_h",
+                "err_k",
+                "err_L",
+            ]
+        )
         writer.writerows(results)
 
     print(f"\n Dataset successfully generated and saved to: {output_file}\n")
@@ -211,5 +244,5 @@ if __name__ == "__main__":
         raan_bounds=mission_raan_bounds,
         aop_bounds=mission_aop_bounds,
         ta_bounds=mission_ta_bounds,
-        tof_bounds=mission_tof_bounds
+        tof_bounds=mission_tof_bounds,
     )

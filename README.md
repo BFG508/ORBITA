@@ -36,10 +36,10 @@ Unlike its predecessor ESTHER, which was developed in MATLAB, ORBITA is built en
     * `dataset.py` - Custom dataset loader, Z-score standardization, and angular feature engineering.
     * `architecture.py` - Deep Residual Architecture (ResidualPredictor) and MC-Dropout inference.
   * `/physics` - Astrodynamic module:
+    * `residuals.py` - Shared Grey-Box residual computation pipeline (Oracle vs. Analytical in MEE).
     * `analytical.py` - The ESTHER closed-form CW equations translated and optimized.
     * `kepler.py` - Unperturbed two-body Keplerian baseline analytical Newton-Raphson propagator.
     * `oracle.py` - High-precision numerical propagation and ECI/COE/MEE transformations (Ground Truth).
-    * `residuals.py` - Shared Grey-Box residual computation pipeline (Oracle vs. Analytical in MEE).
   * `generate_base_dataset.py` - Parallelized Monte Carlo MEE dataset generator for initial expert training.
   * `train_base.py` - PyTorch training loop with Early Stopping, TensorBoard logging, and aggressive LR scheduling.
   * `orchestrator_base.py` - Automated ML Pipeline to build and train the initial 3D grid of MoE models.

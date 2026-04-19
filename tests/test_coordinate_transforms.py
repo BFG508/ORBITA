@@ -1,5 +1,5 @@
 """
-Module: test_coordinate_transforms.py
+Script: test_coordinate_transforms.py
 
 Description:
     Roundtrip and self-consistency tests for the ORBITA coordinate

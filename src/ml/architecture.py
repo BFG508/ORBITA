@@ -17,10 +17,10 @@ Description:
 import torch
 import torch.nn as nn
 
-
 # =============================================================================
 # FLAGSHIP ARCHITECTURE (GREY-BOX RESNET)
 # =============================================================================
+
 
 class ResidualBlock(nn.Module):
     """
@@ -38,12 +38,12 @@ class ResidualBlock(nn.Module):
         """
         super(ResidualBlock, self).__init__()
         self.linear1 = nn.Linear(hidden_size, hidden_size)
-        self.act1    = nn.GELU()
-        self.drop1   = nn.Dropout(dropout_rate)
+        self.act1 = nn.GELU()
+        self.drop1 = nn.Dropout(dropout_rate)
 
         self.linear2 = nn.Linear(hidden_size, hidden_size)
-        self.act2    = nn.GELU()
-        self.drop2   = nn.Dropout(dropout_rate)
+        self.act2 = nn.GELU()
+        self.drop2 = nn.Dropout(dropout_rate)
 
     def forward(self, x):
         """
@@ -75,7 +75,14 @@ class ResidualPredictor(nn.Module):
     Outputs: 6 variables (Residual errors in MEE).
     """
 
-    def __init__(self, input_size=8, hidden_size=128, output_size=6, dropout_rate=0.001, num_blocks=2):
+    def __init__(
+        self,
+        input_size=8,
+        hidden_size=128,
+        output_size=6,
+        dropout_rate=0.001,
+        num_blocks=2,
+    ):
         """
         Initializes the Deep Residual architecture.
 
@@ -90,12 +97,13 @@ class ResidualPredictor(nn.Module):
 
         # Input layer
         self.input_layer = nn.Sequential(
-            nn.Linear(input_size, hidden_size),
-            nn.GELU()
+            nn.Linear(input_size, hidden_size), nn.GELU()
         )
 
         # The "Deep Core": Dynamically generated residual blocks
-        blocks = [ResidualBlock(hidden_size, dropout_rate) for _ in range(num_blocks)]
+        blocks = [
+            ResidualBlock(hidden_size, dropout_rate) for _ in range(num_blocks)
+        ]
         self.res_blocks = nn.Sequential(*blocks)
 
         # Output layer
@@ -139,6 +147,7 @@ class ResidualPredictor(nn.Module):
 # ABLATION STUDY & BASELINE MODELS
 # =============================================================================
 
+
 class LinearBaseline(nn.Module):
     """
     A strict Linear Regression baseline.
@@ -163,6 +172,19 @@ class LinearBaseline(nn.Module):
         """
         return self.linear(x)
 
+    def predict_with_uncertainty(self, x, num_samples=50):
+        """
+        Executes the model multiple times to extract uncertainty.
+        Note: Linear baseline has no dropout, so uncertainty will be 0.
+        """
+        self.train()
+        with torch.no_grad():
+            preds = torch.stack([self.forward(x) for _ in range(num_samples)])
+        mean_pred = preds.mean(dim=0)
+        std_pred = preds.std(dim=0)
+        self.eval()
+        return mean_pred, std_pred
+
 
 class MLPPredictor(nn.Module):
     """
@@ -171,7 +193,14 @@ class MLPPredictor(nn.Module):
     in deep standard networks when approximating orbital mechanics.
     """
 
-    def __init__(self, input_size=8, hidden_size=128, output_size=6, dropout_rate=0.001, num_layers=3):
+    def __init__(
+        self,
+        input_size=8,
+        hidden_size=128,
+        output_size=6,
+        dropout_rate=0.001,
+        num_layers=3,
+    ):
         """
         Initializes the standard MLP baseline.
 
@@ -201,6 +230,19 @@ class MLPPredictor(nn.Module):
         """
         return self.network(x)
 
+    def predict_with_uncertainty(self, x, num_samples=50):
+        """
+        Executes the model multiple times with Dropout active to
+        extract the epistemic uncertainty cloud (MC-Dropout).
+        """
+        self.train()
+        with torch.no_grad():
+            preds = torch.stack([self.forward(x) for _ in range(num_samples)])
+        mean_pred = preds.mean(dim=0)
+        std_pred = preds.std(dim=0)
+        self.eval()
+        return mean_pred, std_pred
+
 
 class LSTMPredictor(nn.Module):
     """
@@ -209,7 +251,14 @@ class LSTMPredictor(nn.Module):
     to compare inference speed and temporal sequence modeling.
     """
 
-    def __init__(self, input_size=8, hidden_size=128, output_size=6, num_layers=2, dropout_rate=0.001):
+    def __init__(
+        self,
+        input_size=8,
+        hidden_size=128,
+        output_size=6,
+        num_layers=2,
+        dropout_rate=0.001,
+    ):
         """
         Initializes the recurrent LSTM baseline.
 
@@ -229,7 +278,7 @@ class LSTMPredictor(nn.Module):
             hidden_size=hidden_size,
             num_layers=num_layers,
             batch_first=True,
-            dropout=lstm_dropout
+            dropout=lstm_dropout,
         )
         self.fc = nn.Linear(hidden_size, output_size)
 
@@ -246,3 +295,16 @@ class LSTMPredictor(nn.Module):
         # Extract the prediction corresponding to the final time step
         last_out = lstm_out[:, -1, :]
         return self.fc(last_out)
+
+    def predict_with_uncertainty(self, x, num_samples=50):
+        """
+        Executes the model multiple times with Dropout active to
+        extract the epistemic uncertainty cloud (MC-Dropout).
+        """
+        self.train()
+        with torch.no_grad():
+            preds = torch.stack([self.forward(x) for _ in range(num_samples)])
+        mean_pred = preds.mean(dim=0)
+        std_pred = preds.std(dim=0)
+        self.eval()
+        return mean_pred, std_pred

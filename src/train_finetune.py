@@ -14,13 +14,14 @@ Description:
 """
 
 import os
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 
+from benchmark import get_model_instance
 from ml.dataset import OrbitalDataset, get_dataloaders
-from ml.architecture import ResidualPredictor
 
 
 def fine_tune_model(
@@ -29,7 +30,8 @@ def fine_tune_model(
     epochs=50,
     batch_size=256,
     lr=1e-5,
-    early_stopping_patience=10
+    early_stopping_patience=10,
+    model_type="resnet",
 ):
     """
     Executes the fine-tuning sequence for a pre-trained expert network.
@@ -46,17 +48,15 @@ def fine_tune_model(
     """
     # 1. Pre-Flight Checks & File Routing
     if not os.path.exists(base_model_path):
-        raise FileNotFoundError(
-            f"Base model not found at {base_model_path}"
-        )
+        raise FileNotFoundError(f"Base model not found at {base_model_path}")
     if not os.path.exists(fine_tune_csv):
         raise FileNotFoundError(
             f"Fine-tuning dataset not found at {fine_tune_csv}"
         )
 
     # Normalize paths for cross-platform consistency
-    base_model_path = base_model_path.replace('\\', '/')
-    fine_tune_csv = fine_tune_csv.replace('\\', '/')
+    base_model_path = base_model_path.replace("\\", "/")
+    fine_tune_csv = fine_tune_csv.replace("\\", "/")
 
     # Safely construct the upgraded model's filename
     base_name = os.path.basename(base_model_path)
@@ -69,6 +69,12 @@ def fine_tune_model(
 
     model_save_path = f"models/{new_model_name}"
 
+    if os.path.exists(model_save_path):
+        print(
+            f" [info] Skipping continual learning: {model_save_path} already exists."
+        )
+        return
+
     print("-" * 80)
     print(" INITIATING CONTINUAL LEARNING (FINE-TUNING)")
     print(f" Base model     : {base_model_path}")
@@ -79,10 +85,17 @@ def fine_tune_model(
 
     # 2. Data Ingestion & Architecture Initialization
     # Infer the base dataset path to extract original normalization bounds
-    params_str = name_without_ext.replace(
-        "orbita_predictor_", ""
-    ).replace("_finetuned", "")
-    base_csv_path = f"data/orbita_dataset_{params_str}.csv"
+    params_str = name_without_ext.replace("orbita_predictor_", "").replace(
+        "_finetuned", ""
+    )
+
+    parts = params_str.split("_")
+    if len(parts) == 4:
+        domain_str = f"{parts[1]}_{parts[2]}_{parts[3]}"
+    else:
+        domain_str = params_str
+
+    base_csv_path = f"data/orbita_dataset_{domain_str}.csv"
 
     if not os.path.exists(base_csv_path):
         raise FileNotFoundError(
@@ -90,25 +103,29 @@ def fine_tune_model(
             f"{base_csv_path}"
         )
 
-    print(" [info] Extracting frozen normalization statistics"
-          " from base dataset...")
+    print(
+        " [info] Extracting frozen normalization statistics"
+        " from base dataset..."
+    )
     base_dataset = OrbitalDataset(base_csv_path)
     frozen_stats = {
-        'x_mean': base_dataset.x_mean,
-        'x_std':  base_dataset.x_std,
-        'y_mean': base_dataset.y_mean,
-        'y_std':  base_dataset.y_std
+        "x_mean": base_dataset.x_mean,
+        "x_std": base_dataset.x_std,
+        "y_mean": base_dataset.y_mean,
+        "y_std": base_dataset.y_std,
     }
 
     # Load the fine-tuning dataset with enforced base scaling
     train_loader, val_loader, dataset = get_dataloaders(
         fine_tune_csv, batch_size=batch_size, base_stats=frozen_stats
     )
-    print(f" [info] Fine-tuning samples: {len(train_loader.dataset)} "
-          f"| Validation samples: {len(val_loader.dataset)}\n")
+    print(
+        f" [info] Fine-tuning samples: {len(train_loader.dataset)} "
+        f"| Validation samples: {len(val_loader.dataset)}\n"
+    )
 
     # Instantiate the architecture and load the baseline knowledge
-    model = ResidualPredictor(input_size=8)
+    model = get_model_instance(model_type)
     model.load_state_dict(torch.load(base_model_path, weights_only=True))
 
     # MSE evaluates the residual dispersion in the MEE domain
@@ -118,14 +135,10 @@ def fine_tune_model(
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=1e-6)
 
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode='min',
-        factor=0.5,
-        patience=5,
-        min_lr=1e-8
+        optimizer, mode="min", factor=0.5, patience=5, min_lr=1e-8
     )
 
-    best_val_loss = float('inf')
+    best_val_loss = float("inf")
     epochs_without_improvement = 0
 
     # 4. TensorBoard logging
@@ -133,8 +146,10 @@ def fine_tune_model(
     writer = SummaryWriter(log_dir=log_dir)
 
     # Console output header for telemetry tracking
-    print(f"{'Epoch':<6} | {'Train Loss':<12} | {'Val Loss':<12}"
-          f" | {'LR':<10} | {'Status'}")
+    print(
+        f"{'Epoch':<6} | {'Train Loss':<12} | {'Validation Loss':<12}"
+        f" | {'Learning Rate':<10} | {'Status'}"
+    )
     print("-" * 80)
 
     # 5. Fine-Tuning Loop
@@ -168,7 +183,7 @@ def fine_tune_model(
         val_loss /= len(val_loader.dataset)
 
         # Advance the scheduler based on validation performance
-        current_lr = optimizer.param_groups[0]['lr']
+        current_lr = optimizer.param_groups[0]["lr"]
         scheduler.step(val_loss)
 
         # Log metrics to TensorBoard
@@ -194,7 +209,7 @@ def fine_tune_model(
         )
         if show_progress:
             print(
-                f"{(epoch+1):03d}/{epochs} | {train_loss:.7f}    "
+                f"{(epoch + 1):03d}/{epochs} | {train_loss:.7f}    "
                 f"| {val_loss:.7f}       | {current_lr:.2e}  "
                 f"    | {status_mark}"
             )
@@ -211,8 +226,10 @@ def fine_tune_model(
     writer.close()
 
     print("-" * 80)
-    print(f" Fine-tuning complete. Updated weights saved to"
-          f" '{model_save_path}'")
+    print(
+        f" Fine-tuning complete. Updated weights saved to"
+        f" '{model_save_path}'"
+    )
     print(f" Ultimate validation loss achieved: {best_val_loss:.8f}")
 
 
@@ -221,15 +238,15 @@ def fine_tune_model(
 # =============================================================================
 if __name__ == "__main__":
     target_base_model = (
-        "models/orbita_predictor_300-725_0.0500-0.0750_0-90.pth"
+        "models/orbita_predictor_resnet_300-2000_0.0000-0.1000_0-90.pth"
     )
     target_finetune_data = (
-        "data/orbita_finetune_300-725_0.0500-0.0750_0-90.csv"
+        "data/orbita_finetune_resnet_300-2000_0.0000-0.1000_0-90.csv"
     )
 
     fine_tune_model(
         base_model_path=target_base_model,
         fine_tune_csv=target_finetune_data,
-        epochs=50,       # Accelerated cycle limit
-        lr=1e-5          # Restricted learning threshold
+        epochs=50,  # Accelerated cycle limit
+        lr=1e-5,  # Restricted learning threshold
     )

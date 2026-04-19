@@ -16,11 +16,9 @@ Description:
 import numpy as np
 
 from physics.analytical import compute_general_solution
-from physics.oracle import (
-    MU, J2, J3, R_EQ,
-    coe_to_eci, eci_to_coe, coe_to_mee, get_ground_truth
-)
 from physics.kepler import get_keplerian
+from physics.oracle import (J2, J3, MU, R_EQ, coe_to_eci, coe_to_mee,
+                            eci_to_coe, get_ground_truth)
 
 
 def wrap_to_pi(angle):
@@ -72,7 +70,7 @@ def compute_mee_residuals(sma, ecc, inc, raan, aop, ta, tof):
     # 3. Analytical Baseline execution (ESTHER + unperturbed Kepler)
     r0, v0 = coe_to_eci(MU, sma, ecc, inc, raan, aop, ta)
     x0_pert = np.zeros(6)
-    n_mean = np.sqrt(MU / (sma ** 3))
+    n_mean = np.sqrt(MU / (sma**3))
 
     delta_pos_esther, delta_vel_esther = compute_general_solution(
         J2, J3, R_EQ, sma, ecc, inc, raan, aop, ta, x0_pert, n_mean, tof
@@ -117,7 +115,7 @@ def compute_analytical_state(sma, ecc, inc, raan, aop, ta, dt):
     """
     r0, v0 = coe_to_eci(MU, sma, ecc, inc, raan, aop, ta)
     x0_pert = np.zeros(6)
-    n_mean = np.sqrt(MU / (sma ** 3))
+    n_mean = np.sqrt(MU / (sma**3))
 
     delta_pos, delta_vel = compute_general_solution(
         J2, J3, R_EQ, sma, ecc, inc, raan, aop, ta, x0_pert, n_mean, dt

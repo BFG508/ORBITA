@@ -1,5 +1,5 @@
 """
-Module: test_config.py
+Script: test_config.py
 
 Description:
     Sanity checks for the centralized configuration module.

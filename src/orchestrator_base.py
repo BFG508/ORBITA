@@ -16,17 +16,15 @@ Description:
 """
 
 import argparse
+
 import numpy as np
 
+from config import (AOP_BOUNDS, MAX_TOF_SECONDS, RAAN_BOUNDS,
+                    SAMPLES_PER_EXPERT, TA_BOUNDS, TOTAL_ECC_BOUNDS,
+                    TOTAL_INC_BOUNDS, TOTAL_SMA_BOUNDS)
 from generate_base_dataset import generate_training_data
-from train_base import train_model
-
 from physics.oracle import R_EQ
-from config import (
-    TOTAL_SMA_BOUNDS, TOTAL_ECC_BOUNDS, TOTAL_INC_BOUNDS,
-    RAAN_BOUNDS, AOP_BOUNDS, TA_BOUNDS, MAX_TOF_SECONDS,
-    SAMPLES_PER_EXPERT
-)
+from train_base import train_model
 
 
 def build_expert_grid(
@@ -37,7 +35,7 @@ def build_expert_grid(
     ecc_splits,
     inc_splits,
     samples_per_expert=5000,
-    model_type="resnet"
+    model_type="resnet",
 ):
     """
     Executes the automated pipeline to generate and train a 3D grid
@@ -112,6 +110,10 @@ def build_expert_grid(
                     f"data/orbita_dataset_{sma_str}_{ecc_str}_{inc_str}.csv"
                 )
 
+                import os
+
+                model_filename = f"models/orbita_predictor_{model_type}_{sma_str}_{ecc_str}_{inc_str}.pth"
+
                 print("\n" + "=" * 75)
                 print(f" PROCESSING EXPERT {model_counter}/{total_models}")
                 print(
@@ -120,31 +122,58 @@ def build_expert_grid(
                 )
                 print("=" * 75)
 
-                # --- PIPELINE STEP 1: DATA GENERATION ---
-                print(f" [step 1] Generating {int(samples_per_expert)}"
-                      " dataset samples...")
-                generate_training_data(
-                    num_samples=int(samples_per_expert),
-                    output_file=csv_filename,
-                    sma_bounds=expert_sma_bounds,
-                    ecc_bounds=expert_ecc_bounds,
-                    inc_bounds=expert_inc_bounds,
-                    raan_bounds=RAAN_BOUNDS,
-                    aop_bounds=AOP_BOUNDS,
-                    ta_bounds=TA_BOUNDS,
-                    tof_bounds=tof_bounds
-                )
+                try:
+                    if os.path.exists(csv_filename) and os.path.exists(
+                        model_filename
+                    ):
+                        print(
+                            " [info] Dataset and model already exist. Skipping."
+                        )
+                        model_counter += 1
+                        continue
 
-                # --- PIPELINE STEP 2: MODEL TRAINING ---
-                print(f"\n [step 2] Training neural network"
-                      f" (Architecture: {model_type.upper()})...")
-                train_model(
-                    csv_file=csv_filename,
-                    model_type=model_type
-                )
+                    if os.path.exists(csv_filename):
+                        print(
+                            f" [step 1] Skipping data generation, {csv_filename} already exists."
+                        )
+                    else:
+                        # --- PIPELINE STEP 1: DATA GENERATION ---
+                        print(
+                            f" [step 1] Generating {int(samples_per_expert)}"
+                            " dataset samples..."
+                        )
+                        generate_training_data(
+                            num_samples=int(samples_per_expert),
+                            output_file=csv_filename,
+                            sma_bounds=expert_sma_bounds,
+                            ecc_bounds=expert_ecc_bounds,
+                            inc_bounds=expert_inc_bounds,
+                            raan_bounds=RAAN_BOUNDS,
+                            aop_bounds=AOP_BOUNDS,
+                            ta_bounds=TA_BOUNDS,
+                            tof_bounds=tof_bounds,
+                        )
 
-                print(f"\n [info] EXPERT {model_counter} COMPLETE.")
-                model_counter += 1
+                    if os.path.exists(model_filename):
+                        print(
+                            f"\n [step 2] Skipping training, {model_filename} already exists."
+                        )
+                    else:
+                        # --- PIPELINE STEP 2: MODEL TRAINING ---
+                        print(
+                            f"\n [step 2] Training neural network"
+                            f" (Architecture: {model_type.upper()})..."
+                        )
+                        train_model(
+                            csv_file=csv_filename, model_type=model_type
+                        )
+
+                    print(f"\n [info] EXPERT {model_counter} COMPLETE.")
+                    model_counter += 1
+                except RuntimeError as e:
+                    print(f"\n [warn] Skipping EXPERT {model_counter}: {e}")
+                    model_counter += 1
+                    continue
 
     print("-" * 80)
     print(" 3D GRID FLEET GENERATION FINISHED SUCCESSFULLY.")
@@ -164,7 +193,7 @@ if __name__ == "__main__":
         type=str,
         choices=["resnet", "linear", "mlp", "lstm"],
         default="resnet",
-        help="Select the neural architecture to train across the grid."
+        help="Select the neural architecture to train across the grid.",
     )
 
     args = parser.parse_args()

@@ -23,27 +23,23 @@ Validation Modes:
        orbital states and propagating them for a single time step.
 """
 
-import os
-import csv
-import time
 import argparse
+import csv
+import os
+import time
+
 import numpy as np
 import torch
 
-from physics.analytical import compute_general_solution
-from physics.oracle import coe_to_eci, eci_to_coe, coe_to_mee, mee_to_coe, get_ground_truth
-from physics.kepler import get_keplerian
-from ml.architecture import (
-    ResidualPredictor,
-    LinearBaseline,
-    MLPPredictor,
-    LSTMPredictor
-)
-from ml.dataset import OrbitalDataset
-from simulate_mission import find_expert_system
-
-from physics.oracle import MU, J2, J3, R_EQ
 from generate_base_dataset import MIN_SAFE_PERIGEE
+from ml.architecture import (LinearBaseline, LSTMPredictor, MLPPredictor,
+                             ResidualPredictor)
+from ml.dataset import OrbitalDataset
+from physics.analytical import compute_general_solution
+from physics.kepler import get_keplerian
+from physics.oracle import (J2, J3, MU, R_EQ, coe_to_eci, coe_to_mee,
+                            eci_to_coe, get_ground_truth, mee_to_coe)
+from simulate_mission import find_expert_system
 
 
 def eci_to_ric_error(r_true, v_true, r_est):
@@ -120,7 +116,9 @@ def execute_ai_step(sma, ecc, inc, raan, aop, ta, dt, model, dataset):
     p_in, f_in, g_in, h_in, k_in, l_in = mee_current
 
     # Build the raw feature vector and normalize it using the expert's statistics
-    raw_input = np.array([p_in, f_in, g_in, h_in, k_in, np.sin(l_in), np.cos(l_in), dt])
+    raw_input = np.array(
+        [p_in, f_in, g_in, h_in, k_in, np.sin(l_in), np.cos(l_in), dt]
+    )
     norm_input = (raw_input - dataset.x_mean) / dataset.x_std
     tensor_input = torch.tensor(norm_input, dtype=torch.float32).unsqueeze(0)
 
@@ -188,7 +186,9 @@ def get_model_instance(model_type):
         raise ValueError(f"Unsupported model_type: '{model_type}'")
 
 
-def run_time_domain_benchmark(sma, ecc, inc, raan, aop, ta, max_tof, case_name="default", model_type="resnet"):
+def run_time_domain_benchmark(
+    sma, ecc, inc, raan, aop, ta, max_tof, case_name="default", model_type=None
+):
     """
     Execute the secular degradation test for a specific target orbit.
 
@@ -213,8 +213,11 @@ def run_time_domain_benchmark(sma, ecc, inc, raan, aop, ta, max_tof, case_name="
             - total_oracle_time (float): Computation time used by the Oracle [s].
             - total_ai_time (float): Computation time used by the AI model [s].
     """
+    model_str = model_type.upper() if model_type else "BEST AVAILABLE"
     print(f"\n{'=' * 80}")
-    print(f" TIME-DOMAIN BENCHMARK: SECULAR DEGRADATION ({case_name.upper()}) | ARCH: {model_type.upper()}")
+    print(
+        f" TIME-DOMAIN BENCHMARK: SECULAR DEGRADATION ({case_name.upper()}) | ARCH: {model_str}"
+    )
     print("=" * 80)
 
     # 0. Safety Check: Filter out subterranean or immediate re-entry orbits
@@ -227,23 +230,44 @@ def run_time_domain_benchmark(sma, ecc, inc, raan, aop, ta, max_tof, case_name="
 
     # Locate the correct Mixture of Experts (MoE) cell for the current state
     try:
-        _, dataset_path = find_expert_system(sma=sma, ecc=ecc, inc=inc)
+        expert_model_path, dataset_path = find_expert_system(
+            sma=sma, ecc=ecc, inc=inc, target_model_type=model_type
+        )
     except ValueError as e:
         print(f" [error] Routing failure: {e}")
         return None, 0.0, 0.0
 
     # Deduce the exact model file based on the selected architecture type
-    dataset_filename = os.path.basename(dataset_path)
-    model_filename = dataset_filename.replace("dataset", f"predictor_{model_type}").replace(".csv", ".pth")
-    model_path = os.path.join("models", model_filename)
+    if model_type is not None:
+        dataset_filename = os.path.basename(dataset_path)
+        model_filename = dataset_filename.replace(
+            "dataset", f"predictor_{model_type}"
+        ).replace(".csv", ".pth")
+        model_path = os.path.join("models", model_filename)
+        current_model_type = model_type
+    else:
+        model_path = expert_model_path
+        basename = os.path.basename(expert_model_path)
+        params_str = (
+            basename.replace("orbita_predictor_", "")
+            .replace(".pth", "")
+            .replace("_finetuned", "")
+        )
+        parts = params_str.split("_")
+        if len(parts) == 4:
+            current_model_type = parts[0]
+        else:
+            current_model_type = "resnet"
 
     if not os.path.exists(model_path):
-        print(f" [error] Model weights not found for this domain: {model_path}")
+        print(
+            f" [error] Model weights not found for this domain: {model_path}"
+        )
         return None, 0.0, 0.0
 
     # Load the expert model and its corresponding normalization statistics
     dataset = OrbitalDataset(dataset_path)
-    model = get_model_instance(model_type)
+    model = get_model_instance(current_model_type)
     model.load_state_dict(torch.load(model_path, weights_only=True))
     model.eval()
 
@@ -276,15 +300,22 @@ def run_time_domain_benchmark(sma, ecc, inc, raan, aop, ta, max_tof, case_name="
         # --- Oracle Ground Truth ---
         start_time = time.perf_counter()
         pos_true, v_true = get_ground_truth(sma, ecc, inc, raan, aop, ta, tof)
-        total_oracle_time += (time.perf_counter() - start_time)
+        total_oracle_time += time.perf_counter() - start_time
 
         # --- AI Estimate ---
         start_time = time.perf_counter()
         pos_est, vel_est = execute_ai_step(
-            curr_sma, curr_ecc, curr_inc, curr_raan, curr_aop, curr_ta,
-            dt, model, dataset
+            curr_sma,
+            curr_ecc,
+            curr_inc,
+            curr_raan,
+            curr_aop,
+            curr_ta,
+            dt,
+            model,
+            dataset,
         )
-        total_ai_time += (time.perf_counter() - start_time)
+        total_ai_time += time.perf_counter() - start_time
 
         # --- Error Calculation ---
         # Transform the ECI error vector into the local RIC coordinate frame
@@ -300,8 +331,9 @@ def run_time_domain_benchmark(sma, ecc, inc, raan, aop, ta, max_tof, case_name="
         results_log.append([case_name, tof, err_r, err_i, err_c])
 
         # Update current orbital elements for the next recursive step
-        curr_sma, curr_ecc, curr_inc, curr_raan, curr_aop, curr_ta = \
+        curr_sma, curr_ecc, curr_inc, curr_raan, curr_aop, curr_ta = (
             eci_to_coe(MU, pos_est, vel_est)
+        )
         prev_tof = tof
 
     # =========================================================================
@@ -316,7 +348,7 @@ def run_time_domain_benchmark(sma, ecc, inc, raan, aop, ta, max_tof, case_name="
     return results_log, total_oracle_time, total_ai_time
 
 
-def run_space_domain_benchmark(num_samples=1000, dt=900, model_type="resnet"):
+def run_space_domain_benchmark(num_samples=1000, dt=900, model_type=None):
     """
     Executes the global Monte Carlo test across the entire LEO parameter space.
 
@@ -329,8 +361,11 @@ def run_space_domain_benchmark(num_samples=1000, dt=900, model_type="resnet"):
         dt (float): Time of Flight for the single-step propagation [s].
         model_type (str): The architecture variant to benchmark.
     """
+    model_str = model_type.upper() if model_type else "BEST AVAILABLE"
     print("\n" + "=" * 80)
-    print(f" 🌐 SPACE-DOMAIN BENCHMARK: GLOBAL LEO COVERAGE | ARCH: {model_type.upper()}")
+    print(
+        f" 🌐 SPACE-DOMAIN BENCHMARK: GLOBAL LEO COVERAGE | ARCH: {model_str}"
+    )
     print("=" * 80)
     print(f" Generating {num_samples} random orbits...")
 
@@ -381,14 +416,33 @@ def run_space_domain_benchmark(num_samples=1000, dt=900, model_type="resnet"):
 
         # Route state to its designated MoE cell
         try:
-            _, dataset_path = find_expert_system(sma, ecc, inc)
+            expert_model_path, dataset_path = find_expert_system(
+                sma, ecc, inc, target_model_type=model_type
+            )
         except ValueError:
             continue  # Skip gracefully if the random state falls out of the total grid bounds
 
         # Deduce the exact model file based on the architecture
-        dataset_filename = os.path.basename(dataset_path)
-        model_filename = dataset_filename.replace("dataset", f"predictor_{model_type}").replace(".csv", ".pth")
-        model_path = os.path.join("models", model_filename)
+        if model_type is not None:
+            dataset_filename = os.path.basename(dataset_path)
+            model_filename = dataset_filename.replace(
+                "dataset", f"predictor_{model_type}"
+            ).replace(".csv", ".pth")
+            model_path = os.path.join("models", model_filename)
+            current_model_type = model_type
+        else:
+            model_path = expert_model_path
+            basename = os.path.basename(expert_model_path)
+            params_str = (
+                basename.replace("orbita_predictor_", "")
+                .replace(".pth", "")
+                .replace("_finetuned", "")
+            )
+            parts = params_str.split("_")
+            if len(parts) == 4:
+                current_model_type = parts[0]
+            else:
+                current_model_type = "resnet"
 
         if not os.path.exists(model_path):
             continue
@@ -396,7 +450,7 @@ def run_space_domain_benchmark(num_samples=1000, dt=900, model_type="resnet"):
         # Load expert lazily
         if model_path not in loaded_models:
             ds = OrbitalDataset(dataset_path)
-            mdl = get_model_instance(model_type)
+            mdl = get_model_instance(current_model_type)
             mdl.load_state_dict(torch.load(model_path, weights_only=True))
             mdl.eval()
             loaded_models[model_path] = mdl
@@ -407,7 +461,9 @@ def run_space_domain_benchmark(num_samples=1000, dt=900, model_type="resnet"):
 
         # Fetch the True state and AI state
         pos_true, v_true = get_ground_truth(sma, ecc, inc, raan, aop, ta, dt)
-        pos_est, _ = execute_ai_step(sma, ecc, inc, raan, aop, ta, dt, model, dataset)
+        pos_est, _ = execute_ai_step(
+            sma, ecc, inc, raan, aop, ta, dt, model, dataset
+        )
 
         # Compute exact discrepancies in the RIC frame
         err_r, err_i, err_c = eci_to_ric_error(pos_true, v_true, pos_est)
@@ -426,18 +482,33 @@ def run_space_domain_benchmark(num_samples=1000, dt=900, model_type="resnet"):
     # 3. STATISTICS AND LOGGING
     # =========================================================================
     os.makedirs("data", exist_ok=True)
-    out_file = f"data/benchmark_space_domain_{model_type}.csv"
+    out_file = f"data/benchmark_space_domain_{model_type if model_type else 'best'}.csv"
 
     with open(out_file, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["SMA_m", "ECC", "INC_rad", "Radial_m", "InTrack_m", "CrossTrack_m"])
+        writer.writerow(
+            [
+                "SMA_m",
+                "ECC",
+                "INC_rad",
+                "Radial_m",
+                "InTrack_m",
+                "CrossTrack_m",
+            ]
+        )
         writer.writerows(results_log)
 
     print("-" * 80)
     print(" GLOBAL ERROR STATISTICS (Absolute values)")
-    print(f" Radial      -> Mean: {np.mean(r_errors):.3f} m | Max: {np.max(r_errors):.3f} m")
-    print(f" In-Track    -> Mean: {np.mean(i_errors):.3f} m | Max: {np.max(i_errors):.3f} m")
-    print(f" Cross-Track -> Mean: {np.mean(c_errors):.3f} m | Max: {np.max(c_errors):.3f} m")
+    print(
+        f" Radial      -> Mean: {np.mean(r_errors):.3f} m | Max: {np.max(r_errors):.3f} m"
+    )
+    print(
+        f" In-Track    -> Mean: {np.mean(i_errors):.3f} m | Max: {np.max(i_errors):.3f} m"
+    )
+    print(
+        f" Cross-Track -> Mean: {np.mean(c_errors):.3f} m | Max: {np.max(c_errors):.3f} m"
+    )
     print("-" * 80)
     print(f" Data saved to : {out_file}")
 
@@ -472,14 +543,14 @@ def generate_random_test_cases(num_cases, max_tof=4 * 3600):
                 "raan": np.random.uniform(0.0, 2 * np.pi),
                 "aop": np.random.uniform(0.0, 2 * np.pi),
                 "ta": np.random.uniform(0.0, 2 * np.pi),
-                "max_tof": max_tof
+                "max_tof": max_tof,
             }
             random_cases.append(case)
 
     return random_cases
 
 
-def run_time_domain_batch(test_cases, output_filename=None, model_type="resnet"):
+def run_time_domain_batch(test_cases, output_filename=None, model_type=None):
     """
     Manage the execution of multiple time-domain benchmark cases.
 
@@ -493,7 +564,8 @@ def run_time_domain_batch(test_cases, output_filename=None, model_type="resnet")
         model_type (str): The architecture variant to test.
     """
     if output_filename is None:
-        output_filename = f"data/benchmark_time_domain_{model_type}.csv"
+        model_str = model_type if model_type else "best"
+        output_filename = f"data/benchmark_time_domain_{model_str}.csv"
 
     # Ensure the output directory exists before attempting to write
     output_dir = os.path.dirname(output_filename)
@@ -524,7 +596,7 @@ def run_time_domain_batch(test_cases, output_filename=None, model_type="resnet")
                 ta=case["ta"],
                 max_tof=case["max_tof"],
                 case_name=case["name"],
-                model_type=model_type
+                model_type=model_type,
             )
 
             # Only write to the file if the orbit was safe and processed correctly
@@ -535,8 +607,9 @@ def run_time_domain_batch(test_cases, output_filename=None, model_type="resnet")
                 total_batch_ai_time += t_ai
 
     # Output the final performance summary to the console
+    model_str = model_type.upper() if model_type else "BEST"
     print(f"\n{'=' * 80}")
-    print(f" UNIFIED TIME-DOMAIN BENCHMARK COMPLETE ({model_type.upper()})")
+    print(f" UNIFIED TIME-DOMAIN BENCHMARK COMPLETE ({model_str})")
     print("=" * 80)
     print(f" Total Orbits Simulated : {successful_cases}/{len(test_cases)}")
     print(f" Total Oracle Time      : {total_batch_oracle_time:.2f} s")
@@ -561,7 +634,7 @@ if __name__ == "__main__":
         type=str,
         choices=["resnet", "linear", "mlp", "lstm"],
         default="resnet",
-        help="Select the neural architecture to benchmark."
+        help="Select the neural architecture to benchmark.",
     )
 
     # Argument to bypass the interactive terminal prompt
@@ -570,13 +643,16 @@ if __name__ == "__main__":
         type=str,
         choices=["1", "2", "3"],
         default=None,
-        help="Validation mode (1: Time, 2: Space, 3: Both). Bypasses input()."
+        help="Validation mode (1: Time, 2: Space, 3: Both). Bypasses input().",
     )
 
     args = parser.parse_args()
 
+    model_str = (
+        args.model_type.upper() if args.model_type else "BEST AVAILABLE"
+    )
     print("=" * 80)
-    print(f" ORBITA BENCHMARK SUITE | ARCHITECTURE: {args.model_type.upper()}")
+    print(f" ORBITA BENCHMARK SUITE | ARCHITECTURE: {model_str}")
     print("=" * 80)
 
     # Bypass interactive prompt if the argument was passed via CLI
@@ -599,16 +675,20 @@ if __name__ == "__main__":
     monte_carlo_samples = 100000
     propagation_dt = 15 * 60  # 15 minutes step
 
-    if choice in ['1', '3']:
-        test_cases = generate_random_test_cases(num_cases=n_cases, max_tof=max_tof)
-        run_time_domain_batch(test_cases=test_cases, model_type=args.model_type)
+    if choice in ["1", "3"]:
+        test_cases = generate_random_test_cases(
+            num_cases=n_cases, max_tof=max_tof
+        )
+        run_time_domain_batch(
+            test_cases=test_cases, model_type=args.model_type
+        )
 
-    if choice in ['2', '3']:
+    if choice in ["2", "3"]:
         run_space_domain_benchmark(
             num_samples=monte_carlo_samples,
             dt=propagation_dt,
-            model_type=args.model_type
+            model_type=args.model_type,
         )
 
-    if choice not in ['1', '2', '3']:
+    if choice not in ["1", "2", "3"]:
         print(" Invalid choice. Exiting.")

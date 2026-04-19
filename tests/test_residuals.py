@@ -1,5 +1,5 @@
 """
-Module: test_residuals.py
+Script: test_residuals.py
 
 Description:
     Tests for the shared residuals computation module.

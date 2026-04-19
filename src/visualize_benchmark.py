@@ -17,14 +17,14 @@ Description:
     to ensure lossless scaling in LaTeX documents. Optimized for massive datasets.
 """
 
-import os
 import argparse
-import pandas as pd
-import numpy as np
+import os
+
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import seaborn as sns
-
 from physics.oracle import R_EQ
 
 # =============================================================================
@@ -37,10 +37,10 @@ COLOR_C = (0.95, 0.52, 0.27)  # Orange (Cross-Track)
 
 # Ablation study architecture palette
 PALETTE_ABLATION = {
-    'resnet': (0.20, 0.02, 0.40),  # Flagship: Dark Purple
-    'mlp':    (0.15, 0.50, 0.55),  # Teal
-    'lstm':   (0.95, 0.52, 0.27),  # Orange
-    'linear': (0.80, 0.20, 0.20)   # Red
+    "resnet": (0.20, 0.02, 0.40),  # Flagship: Dark Purple
+    "mlp": (0.15, 0.50, 0.55),  # Teal
+    "lstm": (0.95, 0.52, 0.27),  # Orange
+    "linear": (0.80, 0.20, 0.20),  # Red
 }
 
 
@@ -52,18 +52,18 @@ def configure_style():
     sns.set_theme(style="ticks")
 
     # Sizes and PDF export settings
-    mpl.rcParams['axes.titlesize'] = 14
-    mpl.rcParams['axes.labelsize'] = 12
-    mpl.rcParams['xtick.labelsize'] = 11
-    mpl.rcParams['ytick.labelsize'] = 11
-    mpl.rcParams['legend.fontsize'] = 11
-    mpl.rcParams['figure.titlesize'] = 16
-    mpl.rcParams['figure.dpi'] = 300
-    mpl.rcParams['pdf.fonttype'] = 42
-    mpl.rcParams['ps.fonttype'] = 42
+    mpl.rcParams["axes.titlesize"] = 14
+    mpl.rcParams["axes.labelsize"] = 12
+    mpl.rcParams["xtick.labelsize"] = 11
+    mpl.rcParams["ytick.labelsize"] = 11
+    mpl.rcParams["legend.fontsize"] = 11
+    mpl.rcParams["figure.titlesize"] = 16
+    mpl.rcParams["figure.dpi"] = 300
+    mpl.rcParams["pdf.fonttype"] = 42
+    mpl.rcParams["ps.fonttype"] = 42
 
 
-def save_format(output_path, description, bbox_inches='tight'):
+def save_format(output_path, description, bbox_inches="tight"):
     """
     Helper function to save the current figure in both PNG and SVG formats,
     and output a single clean, descriptive console notification.
@@ -84,6 +84,7 @@ def save_format(output_path, description, bbox_inches='tight'):
 # SINGLE MODEL VISUALIZATION (STANDARD MODE)
 # =============================================================================
 
+
 def plot_time_domain(csv_path):
     """
     Generate a high-performance hybrid time-domain benchmark figure
@@ -94,53 +95,409 @@ def plot_time_domain(csv_path):
         return
 
     df = pd.read_csv(csv_path)
-    df['Time_hours'] = df['Time_s'] / 3600.0
-    df['Abs_Radial_m'] = np.abs(df['Radial_m'])
-    df['Abs_InTrack_m'] = np.abs(df['InTrack_m'])
-    df['Abs_CrossTrack_m'] = np.abs(df['CrossTrack_m'])
+    df["Time_hours"] = df["Time_s"] / 3600.0
+    df["Abs_Radial_m"] = np.abs(df["Radial_m"])
+    df["Abs_InTrack_m"] = np.abs(df["InTrack_m"])
+    df["Abs_CrossTrack_m"] = np.abs(df["CrossTrack_m"])
 
-    rad_pivot = df.pivot(index='Time_hours', columns='Case_ID', values='Abs_Radial_m')
-    int_pivot = df.pivot(index='Time_hours', columns='Case_ID', values='Abs_InTrack_m')
-    crs_pivot = df.pivot(index='Time_hours', columns='Case_ID', values='Abs_CrossTrack_m')
+    rad_pivot = df.pivot(
+        index="Time_hours", columns="Case_ID", values="Abs_Radial_m"
+    )
+    int_pivot = df.pivot(
+        index="Time_hours", columns="Case_ID", values="Abs_InTrack_m"
+    )
+    crs_pivot = df.pivot(
+        index="Time_hours", columns="Case_ID", values="Abs_CrossTrack_m"
+    )
 
     common_time = rad_pivot.index.values
     num_cases = rad_pivot.shape[1]
 
-    rad_mean, rad_p05, rad_p95 = rad_pivot.mean(axis=1), rad_pivot.quantile(0.05, axis=1), rad_pivot.quantile(0.95, axis=1)
-    int_mean, int_p05, int_p95 = int_pivot.mean(axis=1), int_pivot.quantile(0.05, axis=1), int_pivot.quantile(0.95, axis=1)
-    crs_mean, crs_p05, crs_p95 = crs_pivot.mean(axis=1), crs_pivot.quantile(0.05, axis=1), crs_pivot.quantile(0.95, axis=1)
+    rad_mean, rad_p05, rad_p95 = (
+        rad_pivot.mean(axis=1),
+        rad_pivot.quantile(0.05, axis=1),
+        rad_pivot.quantile(0.95, axis=1),
+    )
+    int_mean, int_p05, int_p95 = (
+        int_pivot.mean(axis=1),
+        int_pivot.quantile(0.05, axis=1),
+        int_pivot.quantile(0.95, axis=1),
+    )
+    crs_mean, crs_p05, crs_p95 = (
+        crs_pivot.mean(axis=1),
+        crs_pivot.quantile(0.05, axis=1),
+        crs_pivot.quantile(0.95, axis=1),
+    )
 
     fig, axes = plt.subplots(3, 1, figsize=(11, 10), sharex=True)
 
-    axes[0].plot(common_time, rad_pivot.values, color=COLOR_R, alpha=0.3, linewidth=0.5, zorder=1)
-    axes[1].plot(common_time, int_pivot.values, color=COLOR_I, alpha=0.3, linewidth=0.5, zorder=1)
-    axes[2].plot(common_time, crs_pivot.values, color=COLOR_C, alpha=0.3, linewidth=0.5, zorder=1)
+    axes[0].plot(
+        common_time,
+        rad_pivot.values,
+        color=COLOR_R,
+        alpha=0.3,
+        linewidth=0.5,
+        zorder=1,
+    )
+    axes[1].plot(
+        common_time,
+        int_pivot.values,
+        color=COLOR_I,
+        alpha=0.3,
+        linewidth=0.5,
+        zorder=1,
+    )
+    axes[2].plot(
+        common_time,
+        crs_pivot.values,
+        color=COLOR_C,
+        alpha=0.3,
+        linewidth=0.5,
+        zorder=1,
+    )
 
-    axes[0].fill_between(common_time, rad_p05, rad_p95, color=COLOR_R, alpha=0.3, linewidth=0, zorder=2, label='5th-95th Percentile')
-    axes[0].plot(common_time, rad_mean, color=COLOR_R, linewidth=2.5, zorder=3, label='Mean Error')
+    axes[0].fill_between(
+        common_time,
+        rad_p05,
+        rad_p95,
+        color=COLOR_R,
+        alpha=0.3,
+        linewidth=0,
+        zorder=2,
+        label="5th-95th Percentile",
+    )
+    axes[0].plot(
+        common_time,
+        rad_mean,
+        color=COLOR_R,
+        linewidth=2.5,
+        zorder=3,
+        label="Mean Error",
+    )
     axes[0].set_ylabel("Radial Error [m]")
     axes[0].set_ylim(bottom=0)
-    axes[0].set_title(f"ORBITA Secular Error Envelope ({num_cases} Cases)", pad=15, fontweight='bold')
-    axes[0].legend(loc='upper left', frameon=True)
+    axes[0].set_title(
+        f"ORBITA Secular Error Envelope ({num_cases} Cases)",
+        pad=15,
+        fontweight="bold",
+    )
+    axes[0].legend(loc="upper left", frameon=True)
 
-    axes[1].fill_between(common_time, int_p05, int_p95, color=COLOR_I, alpha=0.3, linewidth=0, zorder=2)
+    axes[1].fill_between(
+        common_time,
+        int_p05,
+        int_p95,
+        color=COLOR_I,
+        alpha=0.3,
+        linewidth=0,
+        zorder=2,
+    )
     axes[1].plot(common_time, int_mean, color=COLOR_I, linewidth=2.5, zorder=3)
     axes[1].set_ylabel("In-Track Error [m]")
     axes[1].set_ylim(bottom=0)
 
-    axes[2].fill_between(common_time, crs_p05, crs_p95, color=COLOR_C, alpha=0.3, linewidth=0, zorder=2)
+    axes[2].fill_between(
+        common_time,
+        crs_p05,
+        crs_p95,
+        color=COLOR_C,
+        alpha=0.3,
+        linewidth=0,
+        zorder=2,
+    )
     axes[2].plot(common_time, crs_mean, color=COLOR_C, linewidth=2.5, zorder=3)
     axes[2].set_ylabel("Cross-Track Error [m]")
-    axes[2].set_xlabel("Time of Flight [h]", fontsize=12, fontweight='bold')
-    axes[2].set_xlim(left=15.0/60, right=common_time.max())
+    axes[2].set_xlabel("Time of Flight [h]", fontsize=12, fontweight="bold")
+    axes[2].set_xlim(left=15.0 / 60, right=common_time.max())
     axes[2].set_ylim(bottom=0)
 
     for ax in axes:
-        ax.grid(True, linestyle='-', alpha=0.6, zorder=0)
+        ax.grid(True, linestyle="-", alpha=0.6, zorder=0)
 
     plt.tight_layout()
-    model_name = os.path.basename(csv_path).replace('.csv', '')
-    save_format(f"figures/{model_name}_envelope.png", f"Time-Domain Analytics ({model_name})")
+    model_name = os.path.basename(csv_path).replace(".csv", "")
+    save_format(
+        f"figures/{model_name}_envelope.png",
+        f"Time-Domain Analytics ({model_name})",
+    )
+    plt.close()
+
+
+def plot_space_domain_distributions(df, output_prefix):
+    """
+    Generates statistical distribution panels (histograms) using the absolute
+    magnitude of the RIC errors. Consolidates the statistical markers (mean
+    and 95th percentile) into a single global legend to maximize data-ink ratio.
+
+    Args:
+        df (pd.DataFrame): The space-domain dataset containing the precomputed
+            absolute RIC error columns ('Abs_Radial_m', 'Abs_InTrack_m',
+            'Abs_CrossTrack_m').
+        output_prefix (str): The base directory path and filename prefix used
+            for the exported figures. The specific suffix '_histograms.png'
+            (and '.svg') will be appended automatically.
+    """
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    components = [
+        ("Abs_Radial_m", "Absolute Radial Error", COLOR_R),
+        ("Abs_InTrack_m", "Absolute In-Track Error", COLOR_I),
+        ("Abs_CrossTrack_m", "Absolute Cross-Track Error", COLOR_C),
+    ]
+
+    for i, (ax, (col, title, color)) in enumerate(zip(axes, components)):
+        sns.histplot(
+            df[col], kde=True, ax=ax, color=color, stat="density", alpha=0.5
+        )
+
+        mean_val = df[col].mean()
+        p95_val = np.percentile(df[col], 95)
+
+        ax.axvline(
+            mean_val, color="black", linestyle="-", linewidth=1.5, label="Mean"
+        )
+        ax.axvline(
+            p95_val,
+            color="gray",
+            linestyle="--",
+            linewidth=1.5,
+            label=r"95$^{\mathrm{th}}$ Percentile",
+        )
+
+        ax.set_title(title, fontsize=12, fontweight="bold")
+        ax.set_xlabel("Absolute Error [m]")
+        ax.set_xlim(left=0)
+
+        ax.grid(True, linestyle="-", alpha=0.6)
+
+        if i > 0:
+            ax.set_ylabel("")
+
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(
+        handles,
+        labels,
+        loc="upper center",
+        bbox_to_anchor=(0.515, 1),
+        ncol=2,
+        fontsize=11,
+    )
+
+    plt.suptitle(
+        "MoE Generalization: Absolute RIC Error Distributions",
+        x=0.516,
+        y=1.05,
+        fontweight="bold",
+    )
+    plt.tight_layout()
+
+    hist_output = f"{output_prefix}_histograms.png"
+    save_format(hist_output, "Absolute RIC Error Distributions (Histograms)")
+    plt.close()
+
+
+def plot_space_domain_scatter_trends(df, output_prefix, max_samples=5000):
+    """
+    Generates scatter plots correlating the absolute radial error with orbital parameters.
+    Uses random subsampling and rasterized scatters to drastically reduce
+    LOWESS calculation time and SVG export bloat.
+
+    Args:
+        df (pd.DataFrame): The space-domain dataset containing orbital parameters
+            ('SMA_km', 'ECC', 'INC_rad') and absolute errors ('Abs_Radial_m').
+        output_prefix (str): The base directory path and filename prefix used
+            for the exported figures. The specific suffix '_scatter.png'
+            (and '.svg') will be appended automatically.
+        max_samples (int, optional): Maximum number of data points to plot and
+            use for the LOWESS trendline calculation. This prevents O(N^2)
+            algorithmic bottlenecks and massive vector file sizes. Defaults to 5000.
+    """
+    if len(df) > max_samples:
+        df_plot = df.sample(n=max_samples, random_state=42)
+    else:
+        df_plot = df
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+
+    sns.regplot(
+        x=df_plot["SMA_km"] - R_EQ / 1e3,
+        y=df_plot["Abs_Radial_m"],
+        ax=axes[0],
+        scatter_kws={"alpha": 0.3, "color": COLOR_R, "rasterized": True},
+        line_kws={"color": "black", "linewidth": 2},
+        lowess=True,
+    )
+    axes[0].set_title(
+        "Absolute Radial Error vs. Altitude", fontsize=12, fontweight="bold"
+    )
+    axes[0].set_xlabel("Altitude [km]")
+    axes[0].set_ylabel("Absolute Radial Error [m]")
+    axes[0].set_ylim(bottom=0)
+    axes[0].set_xlim(
+        left=(df_plot["SMA_km"] - R_EQ / 1e3).min(),
+        right=(df_plot["SMA_km"] - R_EQ / 1e3).max(),
+    )
+
+    sns.regplot(
+        x=df_plot["ECC"],
+        y=df_plot["Abs_Radial_m"],
+        ax=axes[1],
+        scatter_kws={"alpha": 0.3, "color": COLOR_R, "rasterized": True},
+        line_kws={"color": "black", "linewidth": 2},
+        lowess=True,
+    )
+    axes[1].set_title(
+        "Absolute Radial Error vs. Eccentricity",
+        fontsize=12,
+        fontweight="bold",
+    )
+    axes[1].set_xlabel("Eccentricity [-]")
+    axes[1].set_ylim(bottom=0)
+    axes[1].set_xlim(left=df_plot["ECC"].min(), right=df_plot["ECC"].max())
+
+    sns.regplot(
+        x=np.rad2deg(df_plot["INC_rad"]),
+        y=df_plot["Abs_Radial_m"],
+        ax=axes[2],
+        scatter_kws={"alpha": 0.3, "color": COLOR_R, "rasterized": True},
+        line_kws={"color": "black", "linewidth": 2},
+        lowess=True,
+    )
+    axes[2].set_title(
+        "Absolute Radial Error vs. Inclination", fontsize=12, fontweight="bold"
+    )
+    axes[2].set_xlabel("Inclination [deg]")
+    axes[2].set_ylim(bottom=0)
+    axes[2].set_xlim(
+        left=(np.rad2deg(df_plot["INC_rad"])).min(),
+        right=(np.rad2deg(df_plot["INC_rad"])).max(),
+    )
+
+    for i, ax in enumerate(axes):
+        ax.grid(True, linestyle="-", alpha=0.6)
+        if i > 0:
+            ax.set_ylabel("")
+
+    plt.suptitle(
+        "MoE Generalization: Radial Boundary Condition Analysis",
+        x=0.514,
+        fontweight="bold",
+    )
+    plt.tight_layout()
+
+    scatter_output = f"{output_prefix}_scatter.png"
+    save_format(
+        scatter_output, "Radial Boundary Condition Analysis (Scatter/LOWESS)"
+    )
+    plt.close()
+
+
+def plot_domain_heatmap(
+    df, output_filename="figures/plot_space_domain_heatmap.png"
+):
+    """
+    Generates a clean Hexbin Heatmap using the ESTHER 'plasma' colormap
+    to map the topological error distribution across the LEO parameter space.
+
+    Args:
+        df (pd.DataFrame): The space-domain dataset containing orbital parameters
+            ('SMA_km', 'ECC') for the 2D grid, and the absolute in-track error
+            ('Abs_InTrack_m') used to compute the mean error color density.
+        output_filename (str, optional): The exact file path where the generated
+            heatmap figure (.png and .svg) will be exported. Defaults to
+            "figures/plot_space_domain_heatmap.png".
+    """
+    _, ax = plt.subplots(figsize=(10, 8))
+
+    hb = ax.hexbin(
+        df["SMA_km"] - R_EQ / 1e3,
+        df["ECC"],
+        C=df["Abs_InTrack_m"],
+        reduce_C_function=np.mean,
+        gridsize=30,
+        cmap="plasma",
+        edgecolors="white",
+        linewidths=0.2,
+        rasterized=True,
+    )
+
+    cbar = plt.colorbar(hb, ax=ax)
+    cbar.set_label(
+        "Mean Absolute In-Track Error [m]",
+        labelpad=20,
+        fontsize=12.5,
+        fontweight="bold",
+    )
+
+    ax.set_xlabel("Altitude [km]", fontsize=12)
+    ax.set_ylabel("Eccentricity [-]", fontsize=12)
+    ax.set_title(
+        "MoE Topological Absolute Error Density Map", pad=15, fontweight="bold"
+    )
+    ax.grid(True, linestyle="-", alpha=0.6)
+
+    plt.tight_layout()
+    save_format(output_filename, "Topological Error Density Map (Heatmap)")
+    plt.close()
+
+
+def plot_regime_violin(
+    df, output_filename="figures/plot_space_domain_violin.png"
+):
+    """
+    Categorizes the dataset into specific LEO regimes (Low, Medium, High)
+    based on altitude and plots a Violin distribution using a custom
+    gradient extracted from the 'plasma' colormap.
+
+    Args:
+        df (pd.DataFrame): The space-domain dataset containing the semi-major
+            axis ('SMA_km') used to calculate altitude, and the absolute
+            radial error ('Abs_Radial_m') for the probability density.
+        output_filename (str, optional): The target file path where the
+            generated violin plot (.png and .svg) will be exported.
+            Defaults to "figures/plot_space_domain_violin.png".
+    """
+    df["Altitude_km"] = df["SMA_km"] - R_EQ / 1e3
+    bins = [0, 600, 1200, 2000]
+    labels = [
+        "Low LEO (< 600km)",
+        "Medium LEO (600-1200km)",
+        "High LEO (> 1200km)",
+    ]
+    df["Regime"] = pd.cut(df["Altitude_km"], bins=bins, labels=labels)
+
+    df_clean = df.dropna(subset=["Regime"]).copy()
+
+    plt.figure(figsize=(10, 6))
+
+    plasma_gradient = [COLOR_R, COLOR_I, COLOR_C]
+
+    sns.violinplot(
+        data=df_clean,
+        x="Regime",
+        y="Abs_Radial_m",
+        hue="Regime",
+        palette=plasma_gradient,
+        inner="quartile",
+        density_norm="width",
+        rasterized=True,
+        legend=False,
+        dodge=False,
+    )
+
+    plt.title(
+        "Absolute Radial Error Distribution Across LEO Regimes",
+        pad=15,
+        fontweight="bold",
+    )
+    plt.xlabel("Orbital Regime", labelpad=10, fontweight="bold")
+    plt.ylabel("Absolute Radial Error [m]")
+    plt.grid(True, linestyle="-", alpha=0.6)
+
+    plt.tight_layout()
+    save_format(
+        output_filename,
+        "Radial Error Distribution Across LEO Regimes (Violin)",
+    )
     plt.close()
 
 
@@ -153,49 +510,68 @@ def plot_space_domain(csv_path):
         return
 
     df = pd.read_csv(csv_path)
-    df['SMA_km'] = df['SMA_m'] / 1000.0
-    df['Abs_Radial_m'] = np.abs(df['Radial_m'])
-    df['Abs_InTrack_m'] = np.abs(df['InTrack_m'])
-    df['Abs_CrossTrack_m'] = np.abs(df['CrossTrack_m'])
+    df["SMA_km"] = df["SMA_m"] / 1000.0
+    df["Abs_Radial_m"] = np.abs(df["Radial_m"])
+    df["Abs_InTrack_m"] = np.abs(df["InTrack_m"])
+    df["Abs_CrossTrack_m"] = np.abs(df["CrossTrack_m"])
 
-    model_name = os.path.basename(csv_path).replace('.csv', '')
+    model_name = os.path.basename(csv_path).replace(".csv", "")
     prefix = f"figures/{model_name}"
 
     # 1. Plot CDF
     plt.figure(figsize=(9, 6))
-    sns.ecdfplot(df['Abs_Radial_m'], label='Radial Error', color=COLOR_R, linewidth=2)
-    sns.ecdfplot(df['Abs_InTrack_m'], label='In-Track Error', color=COLOR_I, linewidth=2)
-    sns.ecdfplot(df['Abs_CrossTrack_m'], label='Cross-Track Error', color=COLOR_C, linewidth=2)
+    sns.ecdfplot(
+        df["Abs_Radial_m"], label="Radial Error", color=COLOR_R, linewidth=2
+    )
+    sns.ecdfplot(
+        df["Abs_InTrack_m"], label="In-Track Error", color=COLOR_I, linewidth=2
+    )
+    sns.ecdfplot(
+        df["Abs_CrossTrack_m"],
+        label="Cross-Track Error",
+        color=COLOR_C,
+        linewidth=2,
+    )
 
-    plt.axhline(0.95, color='gray', linestyle='--', linewidth=1)
-    plt.title(f"Cumulative Distribution Function ({model_name})", pad=15, fontweight='bold')
+    plt.axhline(0.95, color="gray", linestyle="--", linewidth=1)
+    plt.title(
+        f"Cumulative Distribution Function ({model_name})",
+        pad=15,
+        fontweight="bold",
+    )
     plt.xlabel("Absolute Error [m]")
     plt.ylabel("Cumulative Probability")
     plt.xlim(left=0)
-    plt.grid(True, linestyle='-', alpha=0.6)
-    plt.legend(loc='lower right')
+    plt.grid(True, linestyle="-", alpha=0.6)
+    plt.legend(loc="lower right")
     plt.tight_layout()
     save_format(f"{prefix}_cdf.png", f"CDF Plot ({model_name})")
     plt.close()
+
+    plot_space_domain_distributions(df, prefix)
+    plot_space_domain_scatter_trends(df, prefix)
+    plot_domain_heatmap(df, f"{prefix}_heatmap.png")
+    plot_regime_violin(df, f"{prefix}_violin.png")
 
 
 # =============================================================================
 # ABLATION STUDY VISUALIZATION (COMPARATIVE MODE)
 # =============================================================================
 
+
 def plot_ablation_time_domain(data_dir="data", output_dir="figures"):
     """
     Generates a comparative time-domain figure overlapping the mean error
     accumulation of all available architectural baselines.
     """
-    models = ['resnet', 'mlp', 'lstm', 'linear']
+    models = ["resnet", "mlp", "lstm", "linear"]
 
     # Mapping dictionary to enforce specific legend names
     legend_labels = {
-        'resnet': 'ResNet',
-        'mlp': 'MLP',
-        'lstm': 'LSTM',
-        'linear': 'Linear'
+        "resnet": "ResNet",
+        "mlp": "MLP",
+        "lstm": "LSTM",
+        "linear": "Linear",
     }
 
     available_data = {}
@@ -204,11 +580,11 @@ def plot_ablation_time_domain(data_dir="data", output_dir="figures"):
         path = os.path.join(data_dir, f"benchmark_time_domain_{m}.csv")
         if os.path.exists(path):
             df = pd.read_csv(path)
-            df['Time_hours'] = df['Time_s'] / 3600.0
+            df["Time_hours"] = df["Time_s"] / 3600.0
 
             # Compute means per time step
-            columns_to_mean = ['Radial_m', 'InTrack_m', 'CrossTrack_m']
-            means = df.groupby('Time_hours')[columns_to_mean].apply(
+            columns_to_mean = ["Radial_m", "InTrack_m", "CrossTrack_m"]
+            means = df.groupby("Time_hours")[columns_to_mean].apply(
                 lambda x: np.abs(x).mean()
             )
             available_data[m] = means
@@ -225,43 +601,47 @@ def plot_ablation_time_domain(data_dir="data", output_dir="figures"):
         label = legend_labels.get(m, m.upper())
 
         axes[0].plot(
-            means.index, means['Radial_m'],
-            color=color, linewidth=2.5, label=label
+            means.index,
+            means["Radial_m"],
+            color=color,
+            linewidth=2.5,
+            label=label,
         )
         axes[1].plot(
-            means.index, means['InTrack_m'],
-            color=color, linewidth=2.5
+            means.index, means["InTrack_m"], color=color, linewidth=2.5
         )
         axes[2].plot(
-            means.index, means['CrossTrack_m'],
-            color=color, linewidth=2.5
+            means.index, means["CrossTrack_m"], color=color, linewidth=2.5
         )
 
     axes[0].set_ylabel("Mean Radial Error [m]")
     axes[0].set_title(
         "Ablation Study: Secular Error Accumulation Over Time",
-        pad=15, fontweight='bold'
+        pad=15,
+        fontweight="bold",
     )
-    axes[0].legend(loc='upper left', frameon=True)
+    axes[0].legend(loc="upper left", frameon=True)
 
     axes[1].set_ylabel("Mean In-Track Error [m]")
     axes[2].set_ylabel("Mean Cross-Track Error [m]")
     axes[2].set_xlabel("Time of Flight [h]", fontsize=12)
-    axes[2].set_xlim(left=min(means.index.min() for means in available_data.values()),
-                     right=max(means.index.max() for means in available_data.values()))
+    axes[2].set_xlim(
+        left=min(means.index.min() for means in available_data.values()),
+        right=max(means.index.max() for means in available_data.values()),
+    )
 
     # Use logarithmic scale on Y if Linear is present to avoid flatlining
-    if 'linear' in available_data:
+    if "linear" in available_data:
         for ax in axes:
-            ax.set_yscale('log')
+            ax.set_yscale("log")
 
     for ax in axes:
-        ax.grid(True, linestyle='-', alpha=0.6, which='both')
+        ax.grid(True, linestyle="-", alpha=0.6, which="both")
 
     plt.tight_layout()
     save_format(
         os.path.join(output_dir, "ablation_time_domain_comparison.png"),
-        "Ablation Time-Domain Comparison"
+        "Ablation Time-Domain Comparison",
     )
     plt.close()
 
@@ -271,14 +651,14 @@ def plot_ablation_space_domain(data_dir="data", output_dir="figures"):
     Generates a comparative Cumulative Distribution Function (CDF) plot
     for the In-Track error across all available architectural baselines.
     """
-    models = ['resnet', 'mlp', 'lstm', 'linear']
+    models = ["resnet", "mlp", "lstm", "linear"]
 
     # Mapping dictionary to enforce specific legend names
     legend_labels = {
-        'resnet': 'ResNet',
-        'mlp': 'MLP',
-        'lstm': 'LSTM',
-        'linear': 'Linear'
+        "resnet": "ResNet",
+        "mlp": "MLP",
+        "lstm": "LSTM",
+        "linear": "Linear",
     }
 
     available_data = {}
@@ -287,7 +667,7 @@ def plot_ablation_space_domain(data_dir="data", output_dir="figures"):
         path = os.path.join(data_dir, f"benchmark_space_domain_{m}.csv")
         if os.path.exists(path):
             df = pd.read_csv(path)
-            available_data[m] = np.abs(df['InTrack_m'])
+            available_data[m] = np.abs(df["InTrack_m"])
 
     if not available_data:
         print(" [error] No ablation space-domain data found.")
@@ -297,35 +677,41 @@ def plot_ablation_space_domain(data_dir="data", output_dir="figures"):
 
     for m, data in available_data.items():
         color = PALETTE_ABLATION[m]
-        # Retrieve the exact name from the dictionary, defaulting to uppercase if not found
+        # Retrieve the exact name from the dictionary, defaulting to uppercase
+        # if not found
         label = legend_labels.get(m, m.upper())
         sns.ecdfplot(data, label=label, color=color, linewidth=2)
 
-    plt.axhline(0.95, color='gray', linestyle='--', linewidth=1)
+    plt.axhline(0.95, color="gray", linestyle="--", linewidth=1)
     plt.text(
-        0.02, 0.96, '95% Confidence Bound',
-        transform=plt.gca().transAxes, fontsize=10, color='gray'
+        0.02,
+        0.96,
+        "95% Confidence Bound",
+        transform=plt.gca().transAxes,
+        fontsize=10,
+        color="gray",
     )
 
     plt.title(
         "Ablation Study: Generalization Performance (In-Track Error CDF)",
-        pad=15, fontweight='bold'
+        pad=15,
+        fontweight="bold",
     )
     plt.xlabel("Absolute In-Track Error [m]")
     plt.ylabel("Cumulative Probability")
 
-    if 'linear' in available_data:
-        plt.xscale('log')
+    if "linear" in available_data:
+        plt.xscale("log")
     else:
         plt.xlim(left=0)
 
-    plt.grid(True, linestyle='-', alpha=0.6, which='both')
-    plt.legend(loc='lower right')
+    plt.grid(True, linestyle="-", alpha=0.6, which="both")
+    plt.legend(loc="lower right")
 
     plt.tight_layout()
     save_format(
         os.path.join(output_dir, "ablation_space_domain_cdf.png"),
-        "Ablation Space-Domain CDF Comparison"
+        "Ablation Space-Domain CDF Comparison",
     )
     plt.close()
 
@@ -341,7 +727,7 @@ if __name__ == "__main__":
         type=str,
         choices=["single", "ablation"],
         default="single",
-        help="Select 'single' for a specific model report, or 'ablation' for architecture comparison."
+        help="Select 'single' for a specific model report, or 'ablation' for architecture comparison.",
     )
 
     parser.add_argument(
@@ -349,7 +735,7 @@ if __name__ == "__main__":
         type=str,
         choices=["resnet", "linear", "mlp", "lstm"],
         default="resnet",
-        help="Used in 'single' mode. Selects which architecture's data to plot."
+        help="Used in 'single' mode. Selects which architecture's data to plot.",
     )
 
     args = parser.parse_args()

@@ -18,20 +18,17 @@ Description:
     baseline architectures (ResNet, Linear, MLP, LSTM) via command-line arguments.
 """
 
-import os
 import argparse
+import os
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 
+from ml.architecture import (LinearBaseline, LSTMPredictor, MLPPredictor,
+                             ResidualPredictor)
 from ml.dataset import get_dataloaders
-from ml.architecture import (
-    ResidualPredictor,
-    LinearBaseline,
-    MLPPredictor,
-    LSTMPredictor
-)
 
 
 def train_model(
@@ -40,7 +37,7 @@ def train_model(
     epochs=150,
     batch_size=512,
     lr=1e-3,
-    early_stopping_patience=20
+    early_stopping_patience=20,
 ):
     """
     Executes the training and validation loop for the selected neural network.
@@ -65,10 +62,14 @@ def train_model(
 
     # Differentiate saved weights by architecture type to avoid overwriting
     target_prefix = f"predictor_{model_type}"
-    model_filename = name_without_ext.replace(
-        "dataset", target_prefix
-    ) + ".pth"
+    model_filename = (
+        name_without_ext.replace("dataset", target_prefix) + ".pth"
+    )
     model_save_path = f"models/{model_filename}"
+
+    if os.path.exists(model_save_path):
+        print(f" [info] Skipping training: {model_save_path} already exists.")
+        return
 
     print("-" * 80)
     print(f" Starting training (Architecture: {model_type.upper()})")
@@ -87,8 +88,10 @@ def train_model(
     train_loader, val_loader, dataset = get_dataloaders(
         csv_file, batch_size=batch_size
     )
-    print(f" [info] Training samples: {len(train_loader.dataset)}"
-          f" | Validation samples: {len(val_loader.dataset)}\n")
+    print(
+        f" [info] Training samples: {len(train_loader.dataset)}"
+        f" | Validation samples: {len(val_loader.dataset)}\n"
+    )
 
     # 3. Instantiate the requested network architecture
     model_type = model_type.lower()
@@ -116,14 +119,10 @@ def train_model(
     # Reduces LR by 50% if validation loss plateaus for 10 epochs.
     # Stops dropping at 1e-7 to avoid float32 precision breakdown.
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer,
-        mode='min',
-        factor=0.5,
-        patience=10,
-        min_lr=1e-7
+        optimizer, mode="min", factor=0.5, patience=10, min_lr=1e-7
     )
 
-    best_val_loss = float('inf')
+    best_val_loss = float("inf")
     epochs_without_improvement = 0
     os.makedirs("models", exist_ok=True)
 
@@ -133,8 +132,10 @@ def train_model(
     print(f" [info] TensorBoard logs: {log_dir}\n")
 
     # Console output header
-    print(f"{'Epoch':<7} | {'Train Loss':<12} | {'Val Loss':<12}"
-          f" | {'LR':<10} | {'Status'}")
+    print(
+        f"{'Epoch':<7} | {'Train Loss':<12} | {'Validation Loss':<12}"
+        f" | {'Learning Rate':<10} | {'Status'}"
+    )
     print("-" * 80)
 
     # 5. Epoch loop
@@ -145,11 +146,11 @@ def train_model(
         train_loss = 0.0
 
         for batch_x, batch_y in train_loader:
-            optimizer.zero_grad()                  # Clear old gradients
-            predictions = model(batch_x)           # Forward pass
+            optimizer.zero_grad()  # Clear old gradients
+            predictions = model(batch_x)  # Forward pass
             loss = criterion(predictions, batch_y)  # Compute error
-            loss.backward()                        # Backward pass
-            optimizer.step()                       # Update weights
+            loss.backward()  # Backward pass
+            optimizer.step()  # Update weights
 
             train_loss += loss.item() * batch_x.size(0)
 
@@ -168,7 +169,7 @@ def train_model(
         val_loss /= len(val_loader.dataset)
 
         # Capture current learning rate before scheduler updates it
-        current_lr = optimizer.param_groups[0]['lr']
+        current_lr = optimizer.param_groups[0]["lr"]
 
         # Trigger scheduler
         scheduler.step(val_loss)
@@ -196,7 +197,7 @@ def train_model(
         )
         if show_progress:
             print(
-                f"{(epoch+1):03d}/{epochs} | {train_loss:.7f}    "
+                f"{(epoch + 1):03d}/{epochs} | {train_loss:.7f}    "
                 f"| {val_loss:.7f}       | {current_lr:.2e}  "
                 f"    | {status_mark}"
             )
@@ -222,15 +223,13 @@ def train_model(
 # =============================================================================
 if __name__ == "__main__":
     # Setup argparse for Ablation Study execution
-    parser = argparse.ArgumentParser(
-        description="ORBITA Model Training Suite"
-    )
+    parser = argparse.ArgumentParser(description="ORBITA Model Training Suite")
 
     parser.add_argument(
         "--dataset",
         type=str,
         default="data/orbita_dataset_300-2000_0.0000-0.1000_0-90.csv",
-        help="Path to the generated training dataset."
+        help="Path to the generated training dataset.",
     )
 
     parser.add_argument(
@@ -238,7 +237,7 @@ if __name__ == "__main__":
         type=str,
         choices=["resnet", "linear", "mlp", "lstm"],
         default="resnet",
-        help="Select the neural architecture to train."
+        help="Select the neural architecture to train.",
     )
 
     args = parser.parse_args()

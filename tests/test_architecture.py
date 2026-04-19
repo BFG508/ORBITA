@@ -1,5 +1,5 @@
 """
-Module: test_architecture.py
+Script: test_architecture.py
 
 Description:
     Tests for the ORBITA neural network architectures.
