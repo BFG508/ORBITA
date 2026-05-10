@@ -22,9 +22,17 @@ from multiprocessing import Pool, cpu_count
 
 import numpy as np
 
-from config import (AOP_BOUNDS, MAX_TOF_SECONDS, MIN_SAFE_PERIGEE, RAAN_BOUNDS,
-                    SAMPLES_PER_EXPERT, TA_BOUNDS, TOTAL_ECC_BOUNDS,
-                    TOTAL_INC_BOUNDS, TOTAL_SMA_BOUNDS)
+from config import (
+    AOP_BOUNDS,
+    MAX_TOF_SECONDS,
+    MIN_SAFE_PERIGEE,
+    RAAN_BOUNDS,
+    SAMPLES_PER_EXPERT,
+    TA_BOUNDS,
+    TOTAL_ECC_BOUNDS,
+    TOTAL_INC_BOUNDS,
+    TOTAL_SMA_BOUNDS,
+)
 from physics.oracle import R_EQ
 from physics.residuals import compute_mee_residuals
 
@@ -168,7 +176,9 @@ def generate_training_data(
                 consecutive_empty_batches += 1
                 if consecutive_empty_batches >= max_consecutive_empty:
                     raise RuntimeError(
-                        f"Failed to generate valid orbits {max_consecutive_empty} times. Range might be physically invalid."
+                        f"Failed to generate valid orbits "
+                        f"{max_consecutive_empty} times. "
+                        "Range might be physically invalid."
                     )
             else:
                 consecutive_empty_batches = 0

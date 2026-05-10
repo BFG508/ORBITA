@@ -15,20 +15,77 @@ Description:
     converges, and TensorBoard logging for interactive training diagnostics.
 
     Upgraded to support Ablation Studies: Dynamically instantiates different
-    baseline architectures (ResNet, Linear, MLP, LSTM) via command-line arguments.
+    baseline architectures (ResNet, Linear, MLP, LSTM, Tree) via
+    command-line arguments.
 """
 
 import argparse
+import csv
+import logging
 import os
+import time
 
+import joblib
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+
+logging.getLogger("codecarbon").disabled = True  # noqa: E402
+from codecarbon import EmissionsTracker  # noqa: E402
 from torch.utils.tensorboard import SummaryWriter
 
-from ml.architecture import (LinearBaseline, LSTMPredictor, MLPPredictor,
-                             ResidualPredictor)
+from ml.architecture import (
+    LinearBaseline,
+    LSTMPredictor,
+    MLPPredictor,
+    ResidualPredictor,
+    TreeBaseline,
+)
 from ml.dataset import get_dataloaders
+
+
+def _log_training_metrics(model_type, training_time, val_loss, model_path):
+    """
+    Appends a row to data/metrics_train.csv with the
+    performance metrics collected during training.
+
+    Args:
+        model_type (str): Architecture identifier.
+        training_time (float): Wall-clock training time [s].
+        val_loss (float): Best validation MSE loss achieved.
+        model_path (str): Path to saved model file.
+    """
+    os.makedirs("data", exist_ok=True)
+    metrics_file = "data/metrics_train.csv"
+    header = [
+        "architecture",
+        "training_time_s",
+        "val_loss",
+        "model_size_mb",
+    ]
+
+    write_header = not os.path.exists(metrics_file)
+    size_mb = os.path.getsize(model_path) / (1024 * 1024)
+
+    with open(metrics_file, "a", newline="") as f:
+        writer = csv.writer(f)
+        if write_header:
+            writer.writerow(header)
+        writer.writerow(
+            [
+                model_type,
+                f"{training_time:.2f}",
+                f"{val_loss:.8f}",
+                f"{size_mb:.4f}",
+            ]
+        )
+
+    print(
+        f" [metrics] Logged to {metrics_file}: "
+        f"{model_type} | {training_time:.2f}s | "
+        f"val_loss={val_loss:.8f} | {size_mb:.4f} MB"
+    )
 
 
 def train_model(
@@ -40,35 +97,62 @@ def train_model(
     early_stopping_patience=20,
 ):
     """
-    Executes the training and validation loop for the selected neural network.
-    Automatically generates the output .pth filename based on the input dataset
-    and the chosen architecture model.
+    Executes the training and validation loop for the selected model.
+    Automatically generates the output filename based on the input
+    dataset and the chosen architecture.
 
     Args:
         csv_file (str): Path to the training dataset CSV.
         model_type (str): Architecture to train
-            ('resnet', 'linear', 'mlp', 'lstm').
+            ('resnet', 'linear', 'mlp', 'lstm', 'tree').
         epochs (int): Maximum number of training epochs.
         batch_size (int): Number of samples per batch.
         lr (float): Initial learning rate for the Adam optimizer.
-        early_stopping_patience (int): Number of epochs without val_loss
-            improvement before terminating training early. Set to `epochs`
-            to effectively disable early stopping.
+        early_stopping_patience (int): Number of epochs without
+            val_loss improvement before terminating training
+            early. Set to `epochs` to effectively disable it.
     """
 
     # 1. Dynamically determine the model save path
     base_name = os.path.basename(csv_file)
     name_without_ext = os.path.splitext(base_name)[0]
 
-    # Differentiate saved weights by architecture type to avoid overwriting
+    # Differentiate saved weights by architecture type to avoid
+    # overwriting. Tree models use .joblib instead of .pth.
     target_prefix = f"predictor_{model_type}"
-    model_filename = (
-        name_without_ext.replace("dataset", target_prefix) + ".pth"
-    )
+    if model_type == "tree":
+        model_filename = (
+            name_without_ext.replace("dataset", target_prefix) + ".joblib"
+        )
+    else:
+        model_filename = (
+            name_without_ext.replace("dataset", target_prefix) + ".pth"
+        )
     model_save_path = f"models/{model_filename}"
 
     if os.path.exists(model_save_path):
-        print(f" [info] Skipping training: {model_save_path} already exists.")
+        # Even though training is skipped, ensure that this
+        # model's metrics are present in the CSV for downstream
+        # analytics.  If the row already exists, _log_training_metrics
+        # will simply append a duplicate that the visualiser
+        # de-duplicates automatically (keep="last").
+        metrics_file = "data/metrics_train.csv"
+        already_logged = False
+        if os.path.exists(metrics_file):
+            with open(metrics_file, "r") as mf:
+                already_logged = model_type in mf.read()
+
+        if not already_logged:
+            print(
+                f" [info] Model exists ({model_save_path})."
+                f" Logging missing metrics..."
+            )
+            _log_training_metrics(model_type, 0.0, 0.0, model_save_path)
+        else:
+            print(
+                f" [info] Skipping training: "
+                f"{model_save_path} already exists."
+            )
         return
 
     print("-" * 80)
@@ -93,7 +177,7 @@ def train_model(
         f" | Validation samples: {len(val_loader.dataset)}\n"
     )
 
-    # 3. Instantiate the requested network architecture
+    # 3. Instantiate the requested model architecture
     model_type = model_type.lower()
     if model_type == "resnet":
         model = ResidualPredictor(input_size=8)
@@ -103,11 +187,53 @@ def train_model(
         model = MLPPredictor(input_size=8)
     elif model_type == "lstm":
         model = LSTMPredictor(input_size=8)
+    elif model_type == "tree":
+        model = TreeBaseline(input_size=8)
     else:
         raise ValueError(
             f"Unsupported model_type: '{model_type}'. "
-            "Choose from: resnet, linear, mlp, lstm."
+            "Choose from: resnet, linear, mlp, lstm, tree."
         )
+
+    # =========================================================
+    # TREE BRANCH: scikit-learn training path
+    # =========================================================
+    if model_type == "tree":
+        tracker = EmissionsTracker(
+            project_name=(f"train_{model_type}_{name_without_ext}"),
+            log_level="error",
+            output_dir="data",
+        )
+        tracker.start()
+        train_start = time.time()
+
+        # Extract all samples as NumPy arrays
+        x_all = dataset.x.numpy()
+        y_all = dataset.y.numpy()
+        model.fit(x_all, y_all)
+
+        # Evaluate on validation set
+        val_x = np.vstack(
+            [dataset.x[i].numpy() for i in val_loader.dataset.indices]
+        )
+        val_y = np.vstack(
+            [dataset.y[i].numpy() for i in val_loader.dataset.indices]
+        )
+        val_pred = model.tree.predict(val_x)
+        val_mse = float(np.mean((val_pred - val_y) ** 2))
+
+        elapsed = time.time() - train_start
+        os.makedirs("models", exist_ok=True)
+        joblib.dump(model, model_save_path)
+
+        print("-" * 80)
+        print(f" Tree training complete in {elapsed:.2f}s.")
+        print(f" Validation MSE : {val_mse:.8f}")
+        print(f" Model saved to : {model_save_path}")
+        print("-" * 80)
+        tracker.stop()
+        _log_training_metrics(model_type, elapsed, val_mse, model_save_path)
+        return
 
     criterion = nn.MSELoss()
 
@@ -139,6 +265,14 @@ def train_model(
     print("-" * 80)
 
     # 5. Epoch loop
+    tracker = EmissionsTracker(
+        project_name=(f"train_{model_type}_{name_without_ext}"),
+        log_level="error",
+        output_dir="data",
+    )
+    tracker.start()
+    train_start = time.time()
+
     for epoch in range(epochs):
 
         # --- Training phase ---
@@ -213,9 +347,15 @@ def train_model(
 
     writer.close()
 
+    elapsed = time.time() - train_start
+
     print("-" * 80)
     print(f" Training complete. Best weights saved to '{model_save_path}'")
     print(f" Ultimate validation loss achieved: {best_val_loss:.8f}")
+    print(f" Total training time: {elapsed:.2f}s")
+
+    tracker.stop()
+    _log_training_metrics(model_type, elapsed, best_val_loss, model_save_path)
 
 
 # =============================================================================
@@ -235,7 +375,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_type",
         type=str,
-        choices=["resnet", "linear", "mlp", "lstm"],
+        choices=["resnet", "linear", "mlp", "lstm", "tree"],
         default="resnet",
         help="Select the neural architecture to train.",
     )

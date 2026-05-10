@@ -308,3 +308,104 @@ class LSTMPredictor(nn.Module):
         std_pred = preds.std(dim=0)
         self.eval()
         return mean_pred, std_pred
+
+
+# =============================================================================
+# CLASSICAL ML BASELINE (DECISION TREE)
+# =============================================================================
+
+
+class TreeBaseline:
+    """
+    A scikit-learn DecisionTreeRegressor baseline wrapped to mimic
+    the PyTorch nn.Module interface used by the ORBITA framework.
+
+    This enables seamless integration with the existing benchmark,
+    orchestration, and visualization pipelines without special-casing
+    every call site. Internally it operates on NumPy arrays, but
+    accepts and returns PyTorch tensors where the rest of the
+    codebase expects them.
+    """
+
+    def __init__(self, input_size=8, output_size=6):
+        """
+        Initializes the Decision Tree baseline.
+
+        Args:
+            input_size (int): Number of input features (unused
+                by sklearn, kept for interface consistency).
+            output_size (int): Number of prediction targets.
+        """
+        from sklearn.tree import DecisionTreeRegressor
+
+        self.tree = DecisionTreeRegressor(random_state=42)
+        self.input_size = input_size
+        self.output_size = output_size
+        self._is_fitted = False
+        self.training = False
+
+    # -----------------------------------------------------------------
+    # PyTorch-compatible interface
+    # -----------------------------------------------------------------
+    def __call__(self, x):
+        """
+        Callable interface matching nn.Module.__call__.
+        Accepts a torch.Tensor and returns a torch.Tensor.
+        """
+        return self.forward(x)
+
+    def forward(self, x):
+        """
+        Predict using the fitted tree. Converts tensors to numpy
+        internally and returns a torch.Tensor.
+
+        If the tree has not been fitted yet, returns zeros.
+        """
+        if isinstance(x, torch.Tensor):
+            x_np = x.detach().cpu().numpy()
+        else:
+            x_np = x
+
+        if not self._is_fitted:
+            return torch.zeros(
+                len(x_np),
+                self.output_size,
+                dtype=torch.float32,
+            )
+
+        pred_np = self.tree.predict(x_np)
+        return torch.tensor(pred_np, dtype=torch.float32)
+
+    def eval(self):
+        """Sets evaluation mode for API compatibility."""
+        self.training = False
+        return self
+
+    def train(self, mode=True):
+        """Sets training mode for API compatibility."""
+        self.training = mode
+        return self
+
+    def predict_with_uncertainty(self, x, num_samples=50):
+        """
+        Decision Trees are deterministic, so the standard deviation
+        will always be zero. Provided for API compatibility.
+        """
+        pred = self.forward(x)
+        mean_pred = pred
+        std_pred = torch.zeros_like(pred)
+        return mean_pred, std_pred
+
+    # -----------------------------------------------------------------
+    # Persistence helpers (used by train_base.py)
+    # -----------------------------------------------------------------
+    def fit(self, x_train, y_train):
+        """
+        Fits the Decision Tree on raw NumPy arrays.
+
+        Args:
+            x_train (np.ndarray): Training features.
+            y_train (np.ndarray): Training targets.
+        """
+        self.tree.fit(x_train, y_train)
+        self._is_fitted = True

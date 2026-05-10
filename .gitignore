@@ -25,6 +25,8 @@ models/
 *.ckpt
 *.weights
 *.onnx
+*.pkl
+*.joblib
 
 # Data & Datasets
 data/
@@ -33,6 +35,7 @@ data/
 *.npy
 *.npz
 *.parquet
+.codecarbon.config
 
 # Logs, Benchmarks & Output Graphics
 logs/
@@ -52,7 +55,6 @@ plots/
 
 # Jupyter Notebooks (for Exploratory Data Analysis)
 .ipynb_checkpoints/
-*/.ipynb_checkpoints/*
 
 # Testing
 .pytest_cache/

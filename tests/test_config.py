@@ -12,32 +12,33 @@ Description:
     5. All expected constants exist (no accidental deletions).
 """
 
-import sys
 import os
+import sys
+
 import numpy as np
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from physics.oracle import R_EQ
 import config
-
+from physics.oracle import R_EQ
 
 # =============================================================================
 # PHYSICAL BOUNDS SANITY
 # =============================================================================
+
 
 class TestPhysicalBounds:
     """Verify all orbital domain bounds are physically valid."""
 
     def test_sma_bounds_above_earth_surface(self):
         """SMA minimum must be above the Earth's equatorial radius."""
-        assert config.TOTAL_SMA_BOUNDS[0] > R_EQ, (
-            "SMA lower bound is below Earth's surface"
-        )
-        assert config.TOTAL_SMA_BOUNDS[1] > R_EQ, (
-            "SMA upper bound is below Earth's surface"
-        )
+        assert (
+            config.TOTAL_SMA_BOUNDS[0] > R_EQ
+        ), "SMA lower bound is below Earth's surface"
+        assert (
+            config.TOTAL_SMA_BOUNDS[1] > R_EQ
+        ), "SMA upper bound is below Earth's surface"
 
     def test_sma_bounds_ordered(self):
         """SMA min must be less than SMA max."""
@@ -64,12 +65,12 @@ class TestPhysicalBounds:
             ("AOP", config.AOP_BOUNDS),
             ("TA", config.TA_BOUNDS),
         ]:
-            assert bounds[0] == pytest.approx(0.0), (
-                f"{name} lower bound should be 0"
-            )
-            assert bounds[1] == pytest.approx(2 * np.pi), (
-                f"{name} upper bound should be 2*pi"
-            )
+            assert bounds[0] == pytest.approx(
+                0.0
+            ), f"{name} lower bound should be 0"
+            assert bounds[1] == pytest.approx(
+                2 * np.pi
+            ), f"{name} upper bound should be 2*pi"
 
     def test_min_safe_perigee_above_surface(self):
         """Minimum safe perigee must be above Earth's surface."""
@@ -79,6 +80,7 @@ class TestPhysicalBounds:
 # =============================================================================
 # TIME PARAMETERS
 # =============================================================================
+
 
 class TestTimeParameters:
     """Verify time-of-flight and simulation parameters."""
@@ -93,7 +95,9 @@ class TestTimeParameters:
 
     def test_propagation_step_less_than_max_tof(self):
         """Step size should not exceed the maximum single-step TOF."""
-        assert config.PROPAGATION_STEP_SECONDS >= config.MAX_TOF_SECONDS or True
+        assert (
+            config.PROPAGATION_STEP_SECONDS >= config.MAX_TOF_SECONDS or True
+        )
         # Note: these serve different purposes, so this is informational
 
     def test_simulation_tof_positive(self):
@@ -104,6 +108,7 @@ class TestTimeParameters:
 # =============================================================================
 # TRAINING HYPERPARAMETERS
 # =============================================================================
+
 
 class TestTrainingConfig:
     """Verify training hyperparameters are sensible."""
@@ -138,6 +143,7 @@ class TestTrainingConfig:
 # =============================================================================
 # ACTIVE LEARNING PARAMETERS
 # =============================================================================
+
 
 class TestActiveLearningConfig:
     """Verify active learning parameters are consistent."""

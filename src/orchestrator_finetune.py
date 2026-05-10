@@ -17,8 +17,13 @@ import os
 
 import numpy as np
 
-from config import (AL_HARD_CASES, AL_POOL_SIZE, AL_REPLAY_CASES,
-                    FINETUNE_EPOCHS, FINETUNE_LEARNING_RATE)
+from config import (
+    AL_HARD_CASES,
+    AL_POOL_SIZE,
+    AL_REPLAY_CASES,
+    FINETUNE_EPOCHS,
+    FINETUNE_LEARNING_RATE,
+)
 from generate_finetune_dataset import generate_active_learning_dataset
 from physics.oracle import R_EQ
 from train_finetune import fine_tune_model
@@ -82,13 +87,15 @@ def run_fleet_finetuning(
             f"models/orbita_predictor_{params_str}_finetuned.pth"
         )
 
-        # We don't skip the entire loop here, because the model might not exist but the dataset might.
+        # We don't skip the entire loop here, because the
+        # model might not exist but the dataset might.
         # We will check both individually, but if both exist, we can skip
         # early.
 
         print("-" * 80)
         print(
-            f" UPGRADING EXPERT {idx}/{total_models}: {params_str} (ARCH: {model_arch.upper()})"
+            f" UPGRADING EXPERT {idx}/{total_models}: "
+            f"{params_str} (ARCH: {model_arch.upper()})"
         )
         print("-" * 80)
 
@@ -121,7 +128,8 @@ def run_fleet_finetuning(
             finetune_csv
         ):
             print(
-                f" [info] Skipping EXPERT {idx}/{total_models}: Dataset and finetuned model already exist."
+                f" [info] Skipping EXPERT {idx}/{total_models}:"
+                " Dataset and finetuned model already exist."
             )
             continue
 
@@ -151,7 +159,8 @@ def run_fleet_finetuning(
 
             if os.path.exists(finetuned_model_path):
                 print(
-                    f"\n [step 2] Skipping continual learning, {finetuned_model_path} already exists."
+                    f"\n [step 2] Skipping continual learning, "
+                    f"{finetuned_model_path} already exists."
                 )
             else:
                 # --- PIPELINE STEP 2: CONTINUAL LEARNING ---

@@ -22,8 +22,17 @@ from ml.architecture import ResidualPredictor
 from ml.dataset import OrbitalDataset
 from physics.analytical import compute_general_solution
 from physics.kepler import get_keplerian
-from physics.oracle import (J2, J3, MU, R_EQ, coe_to_eci, coe_to_mee,
-                            eci_to_coe, get_ground_truth, mee_to_coe)
+from physics.oracle import (
+    J2,
+    J3,
+    MU,
+    R_EQ,
+    coe_to_eci,
+    coe_to_mee,
+    eci_to_coe,
+    get_ground_truth,
+    mee_to_coe,
+)
 
 
 def find_expert_system(sma, ecc, inc, target_model_type=None):
@@ -45,14 +54,24 @@ def find_expert_system(sma, ecc, inc, target_model_type=None):
     alt_km = (sma - R_EQ) / 1000.0
     inc_deg = np.degrees(inc)
 
-    # 1. Gather only the base models to parse the domain bounds correctly
+    # 1. Gather only the base models to parse the domain bounds
     base_models = [
         m
-        for m in glob.glob("models/orbita_predictor_*.pth")
+        for m in (
+            glob.glob("models/orbita_predictor_*.pth")
+            + glob.glob("models/orbita_predictor_*.joblib")
+        )
         if "_finetuned" not in m
     ]
 
-    arch_ranking = {"resnet": 1, "mlp": 2, "lstm": 3, "linear": 4, None: 1}
+    arch_ranking = {
+        "resnet": 1,
+        "mlp": 2,
+        "lstm": 3,
+        "linear": 4,
+        "tree": 5,
+        None: 1,
+    }
     best_model = None
     min_volume = float("inf")
     best_arch_score = float("inf")
@@ -61,8 +80,10 @@ def find_expert_system(sma, ecc, inc, target_model_type=None):
         # Normalize paths for cross-platform compatibility
         base_model_path = base_model_path.replace("\\", "/")
         basename = os.path.basename(base_model_path)
-        params_str = basename.replace("orbita_predictor_", "").replace(
-            ".pth", ""
+        params_str = (
+            basename.replace("orbita_predictor_", "")
+            .replace(".pth", "")
+            .replace(".joblib", "")
         )
         parts = params_str.split("_")
 
@@ -109,7 +130,10 @@ def find_expert_system(sma, ecc, inc, target_model_type=None):
 
                 # Reconstruct the correct finetuned path dynamically
                 if model_arch:
-                    finetuned_path = f"models/orbita_predictor_{model_arch}_{domain_str}_finetuned.pth"
+                    finetuned_path = (
+                        f"models/orbita_predictor_{model_arch}"
+                        f"_{domain_str}_finetuned.pth"
+                    )
                 else:
                     finetuned_path = (
                         f"models/orbita_predictor_{domain_str}_finetuned.pth"
@@ -123,10 +147,11 @@ def find_expert_system(sma, ecc, inc, target_model_type=None):
     if best_model:
         return best_model
 
-    raise ValueError(f"No expert model covers this orbit " f"(Alt: {
-            alt_km:.2f}km, Ecc: {
-            ecc:.4f}, Inc: {
-                inc_deg:.2f}deg)")
+    raise ValueError(
+        f"No expert model covers this orbit "
+        f"(Alt: {alt_km:.2f}km, Ecc: {ecc:.4f}, "
+        f"Inc: {inc_deg:.2f}deg)"
+    )
 
 
 def run_stress_test_simulation(
@@ -186,11 +211,12 @@ def run_stress_test_simulation(
         f"\n Simulating orbit over {len(time_steps) - 1} evaluation steps..."
     )
     print(f" Safety threshold: {uncertainty_threshold} meters\n")
-    print(f"{
-            'Time (s)':<9} | {
-            'Decision':<12} | {
-                'Uncertainty [m]':<15} | {
-                    'Absolute Error [m]':<10}")
+    header = (
+        f"{'Time (s)':<9} | {'Decision':<12} | "
+        f"{'Uncertainty [m]':<15} | "
+        f"{'Absolute Error [m]':<10}"
+    )
+    print(header)
     print("-" * 80)
 
     # =========================================================================
@@ -317,11 +343,11 @@ def run_stress_test_simulation(
         )
         absolute_error_meters = np.linalg.norm(pos_final - pos_truth)
 
-        print(f"{
-                tof:<9.1f} | {
-                decision:<12} | {
-                scalar_uncertainty:<15.4f} | {
-                    absolute_error_meters:<16.4f}")
+        print(
+            f"{tof:<9.1f} | {decision:<12} | "
+            f"{scalar_uncertainty:<15.4f} | "
+            f"{absolute_error_meters:<16.4f}"
+        )
 
         # =====================================================================
         # STATE UPDATE (Closing the loop)

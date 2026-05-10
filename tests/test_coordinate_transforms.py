@@ -13,21 +13,25 @@ Description:
     4. The residuals module produces correctly shaped outputs.
 """
 
-import sys
 import os
+import sys
+
 import numpy as np
 import pytest
 
 # Add the src directory to PYTHONPATH so imports work as expected
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from physics.oracle import (
-    MU, R_EQ,
-    coe_to_eci, eci_to_coe, coe_to_mee, mee_to_coe
-)
 from physics.kepler import get_keplerian
+from physics.oracle import (
+    MU,
+    R_EQ,
+    coe_to_eci,
+    coe_to_mee,
+    eci_to_coe,
+    mee_to_coe,
+)
 from physics.residuals import wrap_to_pi
-
 
 # =============================================================================
 # TEST FIXTURES
@@ -35,9 +39,9 @@ from physics.residuals import wrap_to_pi
 
 # Non-degenerate LEO orbit for robust testing (avoids i=0, e=0 edge cases)
 LEO_ORBIT = {
-    "sma": R_EQ + 500e3,     # 500 km altitude
-    "ecc": 0.01,             # Nearly circular
-    "inc": np.radians(51.6), # ISS-like inclination
+    "sma": R_EQ + 500e3,  # 500 km altitude
+    "ecc": 0.01,  # Nearly circular
+    "inc": np.radians(51.6),  # ISS-like inclination
     "raan": np.radians(45),
     "aop": np.radians(90),
     "ta": np.radians(30),
@@ -72,6 +76,7 @@ ORBIT_IDS = ["LEO_ISS", "ELLIPTICAL_75deg", "EQUATORIAL_1deg"]
 # ROUNDTRIP TESTS: COE → ECI → COE
 # =============================================================================
 
+
 class TestCoeEciRoundtrip:
     """Verify that COE → ECI → COE is a lossless transformation."""
 
@@ -89,27 +94,34 @@ class TestCoeEciRoundtrip:
         r_sma, r_ecc, r_inc, r_raan, r_aop, r_ta = recovered
 
         # Validate scalar elements (SMA, ECC)
-        assert r_sma == pytest.approx(sma, rel=1e-10), \
-            f"SMA mismatch: {r_sma} vs {sma}"
-        assert r_ecc == pytest.approx(ecc, rel=1e-8), \
-            f"ECC mismatch: {r_ecc} vs {ecc}"
+        assert r_sma == pytest.approx(
+            sma, rel=1e-10
+        ), f"SMA mismatch: {r_sma} vs {sma}"
+        assert r_ecc == pytest.approx(
+            ecc, rel=1e-8
+        ), f"ECC mismatch: {r_ecc} vs {ecc}"
 
         # Validate angular elements with wrapping tolerance
-        assert r_inc == pytest.approx(inc, abs=1e-10), \
-            f"INC mismatch: {r_inc} vs {inc}"
+        assert r_inc == pytest.approx(
+            inc, abs=1e-10
+        ), f"INC mismatch: {r_inc} vs {inc}"
 
         # Angular residuals need wrapping before comparison
-        assert abs(wrap_to_pi(r_raan - raan)) < 1e-10, \
-            f"RAAN mismatch: {r_raan} vs {raan}"
-        assert abs(wrap_to_pi(r_aop - aop)) < 1e-10, \
-            f"AOP mismatch: {r_aop} vs {aop}"
-        assert abs(wrap_to_pi(r_ta - ta)) < 1e-10, \
-            f"TA mismatch: {r_ta} vs {ta}"
+        assert (
+            abs(wrap_to_pi(r_raan - raan)) < 1e-10
+        ), f"RAAN mismatch: {r_raan} vs {raan}"
+        assert (
+            abs(wrap_to_pi(r_aop - aop)) < 1e-10
+        ), f"AOP mismatch: {r_aop} vs {aop}"
+        assert (
+            abs(wrap_to_pi(r_ta - ta)) < 1e-10
+        ), f"TA mismatch: {r_ta} vs {ta}"
 
 
 # =============================================================================
 # ROUNDTRIP TESTS: COE → MEE → COE
 # =============================================================================
+
 
 class TestCoeMeeRoundtrip:
     """Verify that COE → MEE → COE preserves orbital elements."""
@@ -127,23 +139,30 @@ class TestCoeMeeRoundtrip:
         recovered = mee_to_coe(*mee)
         r_sma, r_ecc, r_inc, r_raan, r_aop, r_ta = recovered
 
-        assert r_sma == pytest.approx(sma, rel=1e-10), \
-            f"SMA mismatch: {r_sma} vs {sma}"
-        assert r_ecc == pytest.approx(ecc, rel=1e-8), \
-            f"ECC mismatch: {r_ecc} vs {ecc}"
-        assert r_inc == pytest.approx(inc, abs=1e-10), \
-            f"INC mismatch: {r_inc} vs {inc}"
-        assert abs(wrap_to_pi(r_raan - raan)) < 1e-10, \
-            f"RAAN mismatch: {r_raan} vs {raan}"
-        assert abs(wrap_to_pi(r_aop - aop)) < 1e-10, \
-            f"AOP mismatch: {r_aop} vs {aop}"
-        assert abs(wrap_to_pi(r_ta - ta)) < 1e-10, \
-            f"TA mismatch: {r_ta} vs {ta}"
+        assert r_sma == pytest.approx(
+            sma, rel=1e-10
+        ), f"SMA mismatch: {r_sma} vs {sma}"
+        assert r_ecc == pytest.approx(
+            ecc, rel=1e-8
+        ), f"ECC mismatch: {r_ecc} vs {ecc}"
+        assert r_inc == pytest.approx(
+            inc, abs=1e-10
+        ), f"INC mismatch: {r_inc} vs {inc}"
+        assert (
+            abs(wrap_to_pi(r_raan - raan)) < 1e-10
+        ), f"RAAN mismatch: {r_raan} vs {raan}"
+        assert (
+            abs(wrap_to_pi(r_aop - aop)) < 1e-10
+        ), f"AOP mismatch: {r_aop} vs {aop}"
+        assert (
+            abs(wrap_to_pi(r_ta - ta)) < 1e-10
+        ), f"TA mismatch: {r_ta} vs {ta}"
 
 
 # =============================================================================
 # KEPLER SOLVER TESTS
 # =============================================================================
+
 
 class TestKeplerSolver:
     """Verify the unperturbed Kepler propagator's boundary conditions."""
@@ -158,12 +177,10 @@ class TestKeplerSolver:
         r_prop, v_prop = get_keplerian(MU, r0, v0, dt=0.0)
 
         np.testing.assert_allclose(
-            r_prop, r0, atol=1e-8,
-            err_msg="Position changed at dt=0"
+            r_prop, r0, atol=1e-8, err_msg="Position changed at dt=0"
         )
         np.testing.assert_allclose(
-            v_prop, v0, atol=1e-8,
-            err_msg="Velocity changed at dt=0"
+            v_prop, v0, atol=1e-8, err_msg="Velocity changed at dt=0"
         )
 
     @pytest.mark.parametrize("orbit", ALL_ORBITS, ids=ORBIT_IDS)
@@ -173,25 +190,30 @@ class TestKeplerSolver:
         ecc, inc = orbit["ecc"], orbit["inc"]
         raan, aop, ta = orbit["raan"], orbit["aop"], orbit["ta"]
 
-        T = 2.0 * np.pi * np.sqrt(sma ** 3 / MU)  # Orbital period [s]
+        T = 2.0 * np.pi * np.sqrt(sma**3 / MU)  # Orbital period [s]
 
         r0, v0 = coe_to_eci(MU, sma, ecc, inc, raan, aop, ta)
         r_prop, v_prop = get_keplerian(MU, r0, v0, dt=T)
 
         # Tolerance is larger here due to accumulated numerical error
         np.testing.assert_allclose(
-            r_prop, r0, atol=1.0,
-            err_msg="Position drift after one full period exceeds 1 m"
+            r_prop,
+            r0,
+            atol=1.0,
+            err_msg="Position drift after one full period exceeds 1 m",
         )
         np.testing.assert_allclose(
-            v_prop, v0, atol=1e-3,
-            err_msg="Velocity drift after one full period exceeds 1 mm/s"
+            v_prop,
+            v0,
+            atol=1e-3,
+            err_msg="Velocity drift after one full period exceeds 1 mm/s",
         )
 
 
 # =============================================================================
 # WRAP_TO_PI TESTS
 # =============================================================================
+
 
 class TestWrapToPi:
     """Verify the angular wrapping utility."""
@@ -225,6 +247,7 @@ class TestWrapToPi:
 # NORMALIZATION IDENTITY TEST
 # =============================================================================
 
+
 class TestNormalization:
     """Verify that normalize → unnormalize yields the original data."""
 
@@ -240,6 +263,5 @@ class TestNormalization:
         recovered = normalized * std + mean
 
         np.testing.assert_allclose(
-            recovered, data, atol=1e-12,
-            err_msg="Z-score roundtrip failed"
+            recovered, data, atol=1e-12, err_msg="Z-score roundtrip failed"
         )

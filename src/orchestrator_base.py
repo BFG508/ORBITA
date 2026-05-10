@@ -19,9 +19,16 @@ import argparse
 
 import numpy as np
 
-from config import (AOP_BOUNDS, MAX_TOF_SECONDS, RAAN_BOUNDS,
-                    SAMPLES_PER_EXPERT, TA_BOUNDS, TOTAL_ECC_BOUNDS,
-                    TOTAL_INC_BOUNDS, TOTAL_SMA_BOUNDS)
+from config import (
+    AOP_BOUNDS,
+    MAX_TOF_SECONDS,
+    RAAN_BOUNDS,
+    SAMPLES_PER_EXPERT,
+    TA_BOUNDS,
+    TOTAL_ECC_BOUNDS,
+    TOTAL_INC_BOUNDS,
+    TOTAL_SMA_BOUNDS,
+)
 from generate_base_dataset import generate_training_data
 from physics.oracle import R_EQ
 from train_base import train_model
@@ -112,7 +119,11 @@ def build_expert_grid(
 
                 import os
 
-                model_filename = f"models/orbita_predictor_{model_type}_{sma_str}_{ecc_str}_{inc_str}.pth"
+                ext = ".joblib" if model_type == "tree" else ".pth"
+                model_filename = (
+                    f"models/orbita_predictor_{model_type}"
+                    f"_{sma_str}_{ecc_str}_{inc_str}{ext}"
+                )
 
                 print("\n" + "=" * 75)
                 print(f" PROCESSING EXPERT {model_counter}/{total_models}")
@@ -191,7 +202,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_type",
         type=str,
-        choices=["resnet", "linear", "mlp", "lstm"],
+        choices=["resnet", "linear", "mlp", "lstm", "tree"],
         default="resnet",
         help="Select the neural architecture to train across the grid.",
     )
@@ -203,9 +214,9 @@ if __name__ == "__main__":
         total_sma_bounds=TOTAL_SMA_BOUNDS,
         total_ecc_bounds=TOTAL_ECC_BOUNDS,
         total_inc_bounds=TOTAL_INC_BOUNDS,
-        sma_splits=17,
-        ecc_splits=10,
-        inc_splits=9,
+        sma_splits=1,
+        ecc_splits=1,
+        inc_splits=1,
         samples_per_expert=SAMPLES_PER_EXPERT,
-        model_type=args.model_type
+        model_type=args.model_type,
     )

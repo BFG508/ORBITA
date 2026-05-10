@@ -11,8 +11,8 @@ Description:
     isolating error components into the physically meaningful RIC coordinate system.
 
     Upgraded to support Ablation Studies: Can load and benchmark different
-    baseline models (ResNet, Linear, MLP, LSTM) to empirically demonstrate
-    the superiority of the Grey-Box approach.
+    baseline models (ResNet, Linear, MLP, LSTM, Tree) to empirically
+    demonstrate the superiority of the Grey-Box approach.
 
 Validation Modes:
     1. Time-Domain (Secular Degradation): Evaluates the long-term numerical
@@ -25,21 +25,74 @@ Validation Modes:
 
 import argparse
 import csv
+import logging
 import os
 import time
 
+import joblib
 import numpy as np
 import torch
 
+logging.getLogger("codecarbon").disabled = True
+from codecarbon import EmissionsTracker
+
 from generate_base_dataset import MIN_SAFE_PERIGEE
-from ml.architecture import (LinearBaseline, LSTMPredictor, MLPPredictor,
-                             ResidualPredictor)
+from ml.architecture import (
+    LinearBaseline,
+    LSTMPredictor,
+    MLPPredictor,
+    ResidualPredictor,
+    TreeBaseline,
+)
 from ml.dataset import OrbitalDataset
 from physics.analytical import compute_general_solution
 from physics.kepler import get_keplerian
-from physics.oracle import (J2, J3, MU, R_EQ, coe_to_eci, coe_to_mee,
-                            eci_to_coe, get_ground_truth, mee_to_coe)
+from physics.oracle import (
+    J2,
+    J3,
+    MU,
+    R_EQ,
+    coe_to_eci,
+    coe_to_mee,
+    eci_to_coe,
+    get_ground_truth,
+    mee_to_coe,
+)
 from simulate_mission import find_expert_system
+
+
+def _log_benchmark_metrics(model_type, mode, wall_time, num_samples):
+    """
+    Appends a row to data/metrics_benchmark.csv with
+    the wall-clock inference time collected during benchmark.
+
+    Args:
+        model_type (str): Architecture identifier.
+        mode (str): 'time_domain' or 'space_domain'.
+        wall_time (float): Total wall-clock time [s].
+        num_samples (int): Number of samples evaluated.
+    """
+    os.makedirs("data", exist_ok=True)
+    metrics_file = "data/metrics_benchmark.csv"
+    header = [
+        "architecture",
+        "mode",
+        "wall_time_s",
+        "num_samples",
+    ]
+
+    write_header = not os.path.exists(metrics_file)
+    with open(metrics_file, "a", newline="") as f:
+        writer = csv.writer(f)
+        if write_header:
+            writer.writerow(header)
+        writer.writerow([model_type, mode, f"{wall_time:.2f}", num_samples])
+
+    print(
+        f" [metrics] Logged to {metrics_file}: "
+        f"{model_type} | {mode} | {wall_time:.2f}s | "
+        f"{num_samples} samples"
+    )
 
 
 def eci_to_ric_error(r_true, v_true, r_est):
@@ -182,6 +235,8 @@ def get_model_instance(model_type):
         return MLPPredictor(input_size=8)
     elif model_type == "lstm":
         return LSTMPredictor(input_size=8)
+    elif model_type == "tree":
+        return TreeBaseline(input_size=8)
     else:
         raise ValueError(f"Unsupported model_type: '{model_type}'")
 
@@ -240,9 +295,14 @@ def run_time_domain_benchmark(
     # Deduce the exact model file based on the selected architecture type
     if model_type is not None:
         dataset_filename = os.path.basename(dataset_path)
-        model_filename = dataset_filename.replace(
-            "dataset", f"predictor_{model_type}"
-        ).replace(".csv", ".pth")
+        if model_type == "tree":
+            model_filename = dataset_filename.replace(
+                "dataset", f"predictor_{model_type}"
+            ).replace(".csv", ".joblib")
+        else:
+            model_filename = dataset_filename.replace(
+                "dataset", f"predictor_{model_type}"
+            ).replace(".csv", ".pth")
         model_path = os.path.join("models", model_filename)
         current_model_type = model_type
     else:
@@ -251,6 +311,7 @@ def run_time_domain_benchmark(
         params_str = (
             basename.replace("orbita_predictor_", "")
             .replace(".pth", "")
+            .replace(".joblib", "")
             .replace("_finetuned", "")
         )
         parts = params_str.split("_")
@@ -265,10 +326,13 @@ def run_time_domain_benchmark(
         )
         return None, 0.0, 0.0
 
-    # Load the expert model and its corresponding normalization statistics
+    # Load the expert model and its corresponding normalization
     dataset = OrbitalDataset(dataset_path)
-    model = get_model_instance(current_model_type)
-    model.load_state_dict(torch.load(model_path, weights_only=True))
+    if current_model_type == "tree":
+        model = joblib.load(model_path)
+    else:
+        model = get_model_instance(current_model_type)
+        model.load_state_dict(torch.load(model_path, weights_only=True))
     model.eval()
 
     total_oracle_time = 0.0
@@ -425,9 +489,14 @@ def run_space_domain_benchmark(num_samples=1000, dt=900, model_type=None):
         # Deduce the exact model file based on the architecture
         if model_type is not None:
             dataset_filename = os.path.basename(dataset_path)
-            model_filename = dataset_filename.replace(
-                "dataset", f"predictor_{model_type}"
-            ).replace(".csv", ".pth")
+            if model_type == "tree":
+                model_filename = dataset_filename.replace(
+                    "dataset", f"predictor_{model_type}"
+                ).replace(".csv", ".joblib")
+            else:
+                model_filename = dataset_filename.replace(
+                    "dataset", f"predictor_{model_type}"
+                ).replace(".csv", ".pth")
             model_path = os.path.join("models", model_filename)
             current_model_type = model_type
         else:
@@ -436,6 +505,7 @@ def run_space_domain_benchmark(num_samples=1000, dt=900, model_type=None):
             params_str = (
                 basename.replace("orbita_predictor_", "")
                 .replace(".pth", "")
+                .replace(".joblib", "")
                 .replace("_finetuned", "")
             )
             parts = params_str.split("_")
@@ -450,8 +520,11 @@ def run_space_domain_benchmark(num_samples=1000, dt=900, model_type=None):
         # Load expert lazily
         if model_path not in loaded_models:
             ds = OrbitalDataset(dataset_path)
-            mdl = get_model_instance(current_model_type)
-            mdl.load_state_dict(torch.load(model_path, weights_only=True))
+            if current_model_type == "tree":
+                mdl = joblib.load(model_path)
+            else:
+                mdl = get_model_instance(current_model_type)
+                mdl.load_state_dict(torch.load(model_path, weights_only=True))
             mdl.eval()
             loaded_models[model_path] = mdl
             loaded_datasets[model_path] = ds
@@ -511,6 +584,8 @@ def run_space_domain_benchmark(num_samples=1000, dt=900, model_type=None):
     )
     print("-" * 80)
     print(f" Data saved to : {out_file}")
+
+    return len(results_log)
 
 
 def generate_random_test_cases(num_cases, max_tof=4 * 3600):
@@ -621,6 +696,8 @@ def run_time_domain_batch(test_cases, output_filename=None, model_type=None):
 
     print(f" Data stream saved to   : {output_filename}")
 
+    return successful_cases, total_batch_ai_time
+
 
 # =============================================================================
 # EXECUTION BLOCK
@@ -632,7 +709,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model_type",
         type=str,
-        choices=["resnet", "linear", "mlp", "lstm"],
+        choices=["resnet", "linear", "mlp", "lstm", "tree"],
         default="resnet",
         help="Select the neural architecture to benchmark.",
     )
@@ -679,15 +756,45 @@ if __name__ == "__main__":
         test_cases = generate_random_test_cases(
             num_cases=n_cases, max_tof=max_tof
         )
-        run_time_domain_batch(
+        tracker = EmissionsTracker(
+            project_name=(f"benchmark_time_domain_{args.model_type}"),
+            log_level="error",
+            output_dir="data",
+        )
+        tracker.start()
+        t0 = time.time()
+        n_ok, ai_time = run_time_domain_batch(
             test_cases=test_cases, model_type=args.model_type
+        )
+        wall = time.time() - t0
+        tracker.stop()
+        _log_benchmark_metrics(
+            args.model_type or "best",
+            "time_domain",
+            wall,
+            n_ok,
         )
 
     if choice in ["2", "3"]:
-        run_space_domain_benchmark(
+        tracker = EmissionsTracker(
+            project_name=(f"benchmark_space_domain_{args.model_type}"),
+            log_level="error",
+            output_dir="data",
+        )
+        tracker.start()
+        t0 = time.time()
+        n_evaluated = run_space_domain_benchmark(
             num_samples=monte_carlo_samples,
             dt=propagation_dt,
             model_type=args.model_type,
+        )
+        wall = time.time() - t0
+        tracker.stop()
+        _log_benchmark_metrics(
+            args.model_type or "best",
+            "space_domain",
+            wall,
+            n_evaluated,
         )
 
     if choice not in ["1", "2", "3"]:

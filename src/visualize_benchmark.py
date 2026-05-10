@@ -25,6 +25,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+
 from physics.oracle import R_EQ
 
 # =============================================================================
@@ -41,6 +42,7 @@ PALETTE_ABLATION = {
     "mlp": (0.15, 0.50, 0.55),  # Teal
     "lstm": (0.95, 0.52, 0.27),  # Orange
     "linear": (0.80, 0.20, 0.20),  # Red
+    "tree": (0.30, 0.68, 0.30),  # Green
 }
 
 
@@ -564,7 +566,7 @@ def plot_ablation_time_domain(data_dir="data", output_dir="figures"):
     Generates a comparative time-domain figure overlapping the mean error
     accumulation of all available architectural baselines.
     """
-    models = ["resnet", "mlp", "lstm", "linear"]
+    models = ["resnet", "mlp", "lstm", "linear", "tree"]
 
     # Mapping dictionary to enforce specific legend names
     legend_labels = {
@@ -572,6 +574,7 @@ def plot_ablation_time_domain(data_dir="data", output_dir="figures"):
         "mlp": "MLP",
         "lstm": "LSTM",
         "linear": "Linear",
+        "tree": "Decision Tree",
     }
 
     available_data = {}
@@ -651,7 +654,7 @@ def plot_ablation_space_domain(data_dir="data", output_dir="figures"):
     Generates a comparative Cumulative Distribution Function (CDF) plot
     for the In-Track error across all available architectural baselines.
     """
-    models = ["resnet", "mlp", "lstm", "linear"]
+    models = ["resnet", "mlp", "lstm", "linear", "tree"]
 
     # Mapping dictionary to enforce specific legend names
     legend_labels = {
@@ -659,6 +662,7 @@ def plot_ablation_space_domain(data_dir="data", output_dir="figures"):
         "mlp": "MLP",
         "lstm": "LSTM",
         "linear": "Linear",
+        "tree": "Decision Tree",
     }
 
     available_data = {}
@@ -717,6 +721,383 @@ def plot_ablation_space_domain(data_dir="data", output_dir="figures"):
 
 
 # =============================================================================
+# METRICS VISUALIZATION (COMPARATIVE MODE)
+# =============================================================================
+
+ARCH_ORDER = ["resnet", "mlp", "lstm", "linear", "tree"]
+LEGEND_MAP = {
+    "resnet": "ResNet",
+    "mlp": "MLP",
+    "lstm": "LSTM",
+    "linear": "Linear",
+    "tree": "Decision Tree",
+}
+
+
+def _load_metrics_csv(path):
+    """
+    Loads a metrics CSV file into a pandas DataFrame.
+    Returns None if the file does not exist.
+    """
+    if not os.path.exists(path):
+        print(f" [warn] Metrics file not found: {path}")
+        return None
+    return pd.read_csv(path)
+
+
+def plot_training_time(data_dir="data", output_dir="figures"):
+    """
+    Generates a horizontal barplot comparing the wall-clock
+    training time across all available architectures.
+    """
+    df = _load_metrics_csv(os.path.join(data_dir, "metrics_train.csv"))
+    if df is None:
+        return
+
+    # Keep only the last entry per architecture
+    df = df.drop_duplicates(subset="architecture", keep="last")
+    df = df[df["architecture"].isin(ARCH_ORDER)]
+    df["architecture"] = pd.Categorical(
+        df["architecture"], categories=ARCH_ORDER, ordered=True
+    )
+    df = df.sort_values("architecture")
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    colors = [
+        PALETTE_ABLATION.get(a, (0.5, 0.5, 0.5)) for a in df["architecture"]
+    ]
+    labels = [LEGEND_MAP.get(a, a) for a in df["architecture"]]
+
+    bars = ax.barh(labels, df["training_time_s"], color=colors)
+
+    for bar, val in zip(bars, df["training_time_s"]):
+        ax.text(
+            bar.get_width() + 0.5,
+            bar.get_y() + bar.get_height() / 2,
+            f"{val:.1f}s",
+            va="center",
+            fontsize=10,
+        )
+
+    ax.set_xlabel("Training Time [s]")
+    ax.set_title(
+        "Architecture Comparison: Training Time",
+        pad=15,
+        fontweight="bold",
+    )
+    ax.grid(True, axis="x", linestyle="-", alpha=0.4)
+    ax.invert_yaxis()
+
+    plt.tight_layout()
+    save_format(
+        os.path.join(output_dir, "metrics_training_time.png"),
+        "Training Time Comparison",
+    )
+    plt.close()
+
+
+def plot_model_size(output_dir="figures"):
+    """
+    Scans the models/ directory and generates a barplot
+    comparing the file size (MB) of each architecture's
+    model files.
+    """
+    import glob
+
+    size_data = {}
+    for arch in ARCH_ORDER:
+        ext = ".joblib" if arch == "tree" else ".pth"
+        pattern = f"models/orbita_predictor_{arch}_*{ext}"
+        files = glob.glob(pattern)
+        files = [f for f in files if "_finetuned" not in f]
+        if files:
+            total = sum(os.path.getsize(f) for f in files)
+            avg = total / len(files) / (1024 * 1024)
+            size_data[arch] = avg
+
+    if not size_data:
+        print(" [warn] No model files found for size comparison.")
+        return
+
+    archs = [a for a in ARCH_ORDER if a in size_data]
+    sizes = [size_data[a] for a in archs]
+    colors = [PALETTE_ABLATION.get(a, (0.5, 0.5, 0.5)) for a in archs]
+    labels = [LEGEND_MAP.get(a, a) for a in archs]
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    bars = ax.barh(labels, sizes, color=colors)
+
+    for bar, val in zip(bars, sizes):
+        ax.text(
+            bar.get_width() + 0.01,
+            bar.get_y() + bar.get_height() / 2,
+            f"{val:.3f} MB",
+            va="center",
+            fontsize=10,
+        )
+
+    ax.set_xlabel("Average Model Size [MB]")
+    ax.set_title(
+        "Architecture Comparison: Model File Size",
+        pad=15,
+        fontweight="bold",
+    )
+    ax.grid(True, axis="x", linestyle="-", alpha=0.4)
+    ax.invert_yaxis()
+
+    plt.tight_layout()
+    save_format(
+        os.path.join(output_dir, "metrics_model_size.png"),
+        "Model Size Comparison",
+    )
+    plt.close()
+
+
+def plot_benchmark_time(data_dir="data", output_dir="figures"):
+    """
+    Generates a grouped barplot comparing the wall-clock
+    inference time across architectures for each benchmark
+    mode (time-domain / space-domain).
+    """
+    df = _load_metrics_csv(os.path.join(data_dir, "metrics_benchmark.csv"))
+    if df is None:
+        return
+
+    # Keep only the last entry per (architecture, mode) pair
+    df = df.drop_duplicates(subset=["architecture", "mode"], keep="last")
+    df = df[df["architecture"].isin(ARCH_ORDER)]
+
+    modes = df["mode"].unique()
+
+    for mode in modes:
+        df_mode = df[df["mode"] == mode].copy()
+        df_mode["architecture"] = pd.Categorical(
+            df_mode["architecture"],
+            categories=ARCH_ORDER,
+            ordered=True,
+        )
+        df_mode = df_mode.sort_values("architecture")
+
+        colors = [
+            PALETTE_ABLATION.get(a, (0.5, 0.5, 0.5))
+            for a in df_mode["architecture"]
+        ]
+        labels = [LEGEND_MAP.get(a, a) for a in df_mode["architecture"]]
+
+        fig, ax = plt.subplots(figsize=(9, 5))
+        bars = ax.barh(labels, df_mode["wall_time_s"], color=colors)
+
+        for bar, val in zip(bars, df_mode["wall_time_s"]):
+            ax.text(
+                bar.get_width() + 0.5,
+                bar.get_y() + bar.get_height() / 2,
+                f"{val:.1f}s",
+                va="center",
+                fontsize=10,
+            )
+
+        mode_title = mode.replace("_", " ").title()
+        ax.set_xlabel("Wall-Clock Time [s]")
+        ax.set_title(
+            f"Architecture Comparison: " f"Inference Time ({mode_title})",
+            pad=15,
+            fontweight="bold",
+        )
+        ax.grid(True, axis="x", linestyle="-", alpha=0.4)
+        ax.invert_yaxis()
+
+        plt.tight_layout()
+        save_format(
+            os.path.join(
+                output_dir,
+                f"metrics_inference_{mode}.png",
+            ),
+            f"Inference Time ({mode_title})",
+        )
+        plt.close()
+
+
+def plot_emissions(data_dir="data", output_dir="figures"):
+    """
+    Reads the CodeCarbon emissions.csv file and generates
+    comparative barplots of energy consumed (kWh) and
+    CO2 emissions (gCO2eq) per architecture.
+    """
+    emissions_file = os.path.join(data_dir, "emissions.csv")
+    if not os.path.exists(emissions_file):
+        print(f" [warn] CodeCarbon file not found: " f"{emissions_file}")
+        return
+
+    df = pd.read_csv(emissions_file)
+
+    # Extract the architecture from the project_name
+    # Format: "train_<arch>_..." or "benchmark_<mode>_<arch>"
+    def _extract_arch(project_name):
+        parts = str(project_name).split("_")
+        if parts[0] == "train" and len(parts) >= 2:
+            return parts[1]
+        elif parts[0] == "benchmark" and len(parts) >= 3:
+            return parts[2]
+        return "unknown"
+
+    df["architecture"] = df["project_name"].apply(_extract_arch)
+
+    # Filter only known architectures
+    df = df[df["architecture"].isin(ARCH_ORDER)]
+
+    if df.empty:
+        print(" [warn] No recognized architectures in " "emissions.csv")
+        return
+
+    # Aggregate by architecture: sum energy and emissions
+    agg = (
+        df.groupby("architecture")
+        .agg(
+            energy_kwh=("energy_consumed", "sum"),
+            emissions_gco2=(
+                "emissions",
+                lambda x: x.sum() * 1000,
+            ),
+        )
+        .reindex([a for a in ARCH_ORDER if a in df["architecture"].values])
+    )
+
+    # --- Plot 1: Energy consumed ---
+    fig, ax = plt.subplots(figsize=(9, 5))
+    labels = [LEGEND_MAP.get(a, a) for a in agg.index]
+    colors = [PALETTE_ABLATION.get(a, (0.5, 0.5, 0.5)) for a in agg.index]
+    bars = ax.barh(labels, agg["energy_kwh"], color=colors)
+
+    for bar, val in zip(bars, agg["energy_kwh"]):
+        ax.text(
+            bar.get_width() + bar.get_width() * 0.02,
+            bar.get_y() + bar.get_height() / 2,
+            f"{val:.6f}",
+            va="center",
+            fontsize=10,
+        )
+
+    ax.set_xlabel("Energy Consumed [kWh]")
+    ax.set_title(
+        "Architecture Comparison: Energy Consumption",
+        pad=15,
+        fontweight="bold",
+    )
+    ax.grid(True, axis="x", linestyle="-", alpha=0.4)
+    ax.invert_yaxis()
+    plt.tight_layout()
+    save_format(
+        os.path.join(output_dir, "metrics_energy_kwh.png"),
+        "Energy Consumption Comparison",
+    )
+    plt.close()
+
+    # --- Plot 2: CO2 emissions ---
+    fig, ax = plt.subplots(figsize=(9, 5))
+    bars = ax.barh(labels, agg["emissions_gco2"], color=colors)
+
+    for bar, val in zip(bars, agg["emissions_gco2"]):
+        ax.text(
+            bar.get_width() + bar.get_width() * 0.02,
+            bar.get_y() + bar.get_height() / 2,
+            f"{val:.4f}",
+            va="center",
+            fontsize=10,
+        )
+
+    ax.set_xlabel("CO₂ Emissions [gCO₂eq]")
+    ax.set_title(
+        "Architecture Comparison: Carbon Footprint",
+        pad=15,
+        fontweight="bold",
+    )
+    ax.grid(True, axis="x", linestyle="-", alpha=0.4)
+    ax.invert_yaxis()
+    plt.tight_layout()
+    save_format(
+        os.path.join(output_dir, "metrics_co2_emissions.png"),
+        "CO2 Emissions Comparison",
+    )
+    plt.close()
+
+
+def plot_cv_results(data_dir="data", output_dir="figures"):
+    """
+    Reads data/metrics_cv.csv and generates a barplot with
+    error bars showing mean ± std validation MSE per
+    architecture from K-Fold Cross-Validation.
+    """
+    cv_file = os.path.join(data_dir, "metrics_cv.csv")
+    if not os.path.exists(cv_file):
+        print(f" [warn] CV metrics not found: {cv_file}")
+        return
+
+    df = pd.read_csv(cv_file)
+    df = df.drop_duplicates(subset="architecture", keep="last")
+    df = df[df["architecture"].isin(ARCH_ORDER)]
+    df["architecture"] = pd.Categorical(
+        df["architecture"],
+        categories=ARCH_ORDER,
+        ordered=True,
+    )
+    df = df.sort_values("architecture")
+
+    labels = [LEGEND_MAP.get(a, a) for a in df["architecture"]]
+    colors = [
+        PALETTE_ABLATION.get(a, (0.5, 0.5, 0.5)) for a in df["architecture"]
+    ]
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    bars = ax.barh(
+        labels,
+        df["mean_val_mse"],
+        xerr=df["std_val_mse"],
+        color=colors,
+        capsize=5,
+        ecolor="gray",
+    )
+
+    for bar, mean, std in zip(bars, df["mean_val_mse"], df["std_val_mse"]):
+        ax.text(
+            bar.get_width() + std + 0.0001,
+            bar.get_y() + bar.get_height() / 2,
+            f"{mean:.6f} ± {std:.6f}",
+            va="center",
+            fontsize=9,
+        )
+
+    ax.set_xlabel("Validation MSE (mean ± std)")
+    ax.set_title(
+        "Architecture Comparison: " "K-Fold Cross-Validation",
+        pad=15,
+        fontweight="bold",
+    )
+    ax.grid(True, axis="x", linestyle="-", alpha=0.4)
+    ax.invert_yaxis()
+    plt.tight_layout()
+    save_format(
+        os.path.join(
+            output_dir,
+            "metrics_cross_validation.png",
+        ),
+        "Cross-Validation Results",
+    )
+    plt.close()
+
+
+def plot_all_metrics(data_dir="data", output_dir="figures"):
+    """
+    Orchestrates all metrics visualization functions.
+    """
+    print("\n [metrics] Generating comparative metrics plots...")
+    plot_training_time(data_dir, output_dir)
+    plot_model_size(output_dir)
+    plot_benchmark_time(data_dir, output_dir)
+    plot_emissions(data_dir, output_dir)
+    plot_cv_results(data_dir, output_dir)
+
+
+# =============================================================================
 # EXECUTION BLOCK
 # =============================================================================
 if __name__ == "__main__":
@@ -725,15 +1106,19 @@ if __name__ == "__main__":
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["single", "ablation"],
+        choices=["single", "ablation", "metrics"],
         default="single",
-        help="Select 'single' for a specific model report, or 'ablation' for architecture comparison.",
+        help=(
+            "Select 'single' for a specific model report, "
+            "'ablation' for architecture comparison, or "
+            "'metrics' for training/inference/size barplots."
+        ),
     )
 
     parser.add_argument(
         "--model_type",
         type=str,
-        choices=["resnet", "linear", "mlp", "lstm"],
+        choices=["resnet", "linear", "mlp", "lstm", "tree"],
         default="resnet",
         help="Used in 'single' mode. Selects which architecture's data to plot.",
     )
@@ -757,6 +1142,9 @@ if __name__ == "__main__":
     elif args.mode == "ablation":
         plot_ablation_time_domain()
         plot_ablation_space_domain()
+
+    elif args.mode == "metrics":
+        plot_all_metrics()
 
     print("=" * 80)
     print(" VISUALIZATION EXPORT COMPLETE.")

@@ -11,6 +11,8 @@ statsmodels==0.14.6
 # --- Machine Learning ---
 torch==2.11.0
 tensorboard==2.20.0
+scikit-learn==1.6.1
+codecarbon==2.8.2
 
 # --- Development & Testing ---
 jupyterlab==4.5.6

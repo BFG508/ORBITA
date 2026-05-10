@@ -9,28 +9,30 @@ Description:
     2. MC-Dropout uncertainty estimation returns valid mean and std.
     3. The predict_with_uncertainty method correctly restores eval() mode.
     4. All architectures handle batched and single-sample inputs.
+    5. TreeBaseline wrapper forwards, predicts, and fits correctly.
 """
 
-import sys
 import os
-import torch
+import sys
+
 import pytest
+import torch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from ml.architecture import (
-    ResidualPredictor,
     LinearBaseline,
-    MLPPredictor,
     LSTMPredictor,
+    MLPPredictor,
+    ResidualPredictor,
+    TreeBaseline,
 )
-
 
 # =============================================================================
 # FIXTURES
 # =============================================================================
 
-INPUT_SIZE = 8   # 6 MEE elements + sin(L)/cos(L) replacement + TOF
+INPUT_SIZE = 8  # 6 MEE elements + sin(L)/cos(L) replacement + TOF
 OUTPUT_SIZE = 6  # 6 MEE residual errors
 BATCH_SIZES = [1, 16, 512]
 
@@ -42,17 +44,22 @@ ALL_ARCHITECTURES = [
     ("LSTM", LSTMPredictor),
 ]
 
+# Tree is tested separately since it's a scikit-learn wrapper
+NN_ARCHITECTURES = ALL_ARCHITECTURES  # alias for gradient tests
+
 
 # =============================================================================
 # FORWARD PASS SHAPE TESTS
 # =============================================================================
 
+
 class TestForwardPassShapes:
     """Verify every architecture produces correctly shaped output tensors."""
 
     @pytest.mark.parametrize(
-        "name, model_cls", ALL_ARCHITECTURES,
-        ids=[a[0] for a in ALL_ARCHITECTURES]
+        "name, model_cls",
+        ALL_ARCHITECTURES,
+        ids=[a[0] for a in ALL_ARCHITECTURES],
     )
     @pytest.mark.parametrize("batch_size", BATCH_SIZES, ids=str)
     def test_output_shape(self, name, model_cls, batch_size):
@@ -70,8 +77,9 @@ class TestForwardPassShapes:
         )
 
     @pytest.mark.parametrize(
-        "name, model_cls", ALL_ARCHITECTURES,
-        ids=[a[0] for a in ALL_ARCHITECTURES]
+        "name, model_cls",
+        ALL_ARCHITECTURES,
+        ids=[a[0] for a in ALL_ARCHITECTURES],
     )
     def test_output_is_finite(self, name, model_cls):
         """Output must contain no NaN or Inf values on random input."""
@@ -82,14 +90,15 @@ class TestForwardPassShapes:
         with torch.no_grad():
             output = model(x)
 
-        assert torch.isfinite(output).all(), (
-            f"{name}: Output contains NaN or Inf"
-        )
+        assert torch.isfinite(
+            output
+        ).all(), f"{name}: Output contains NaN or Inf"
 
 
 # =============================================================================
 # MC-DROPOUT UNCERTAINTY TESTS
 # =============================================================================
+
 
 class TestMCDropoutUncertainty:
     """Verify MC-Dropout uncertainty estimation on ResidualPredictor."""
@@ -152,8 +161,7 @@ class TestMCDropoutUncertainty:
             out2 = model(x)
 
         torch.testing.assert_close(
-            out1, out2,
-            msg="Eval mode predictions are not deterministic"
+            out1, out2, msg="Eval mode predictions are not deterministic"
         )
 
     def test_stochastic_in_train(self):
@@ -183,12 +191,14 @@ class TestMCDropoutUncertainty:
 # GRADIENT FLOW TESTS
 # =============================================================================
 
+
 class TestGradientFlow:
     """Verify that gradients flow through all architectures."""
 
     @pytest.mark.parametrize(
-        "name, model_cls", ALL_ARCHITECTURES,
-        ids=[a[0] for a in ALL_ARCHITECTURES]
+        "name, model_cls",
+        NN_ARCHITECTURES,
+        ids=[a[0] for a in NN_ARCHITECTURES],
     )
     def test_backward_pass_produces_gradients(self, name, model_cls):
         """A backward pass must populate gradients on all parameters."""
@@ -204,9 +214,78 @@ class TestGradientFlow:
 
         for param_name, param in model.named_parameters():
             if param.requires_grad:
-                assert param.grad is not None, (
-                    f"{name}: No gradient for parameter '{param_name}'"
-                )
-                assert torch.isfinite(param.grad).all(), (
-                    f"{name}: Non-finite gradient in '{param_name}'"
-                )
+                assert (
+                    param.grad is not None
+                ), f"{name}: No gradient for parameter '{param_name}'"
+                assert torch.isfinite(
+                    param.grad
+                ).all(), f"{name}: Non-finite gradient in '{param_name}'"
+
+
+# =============================================================================
+# TREE BASELINE TESTS
+# =============================================================================
+
+
+class TestTreeBaseline:
+    """Verify TreeBaseline wrapper for DecisionTreeRegressor."""
+
+    def test_forward_pass_shape(self):
+        """forward() must return a (batch, 6) tensor."""
+        model = TreeBaseline(input_size=INPUT_SIZE)
+        x = torch.randn(16, INPUT_SIZE)
+        output = model(x)
+        assert output.shape == (16, OUTPUT_SIZE)
+
+    def test_forward_single_sample(self):
+        """forward() must handle a single-sample batch."""
+        model = TreeBaseline(input_size=INPUT_SIZE)
+        x = torch.randn(1, INPUT_SIZE)
+        output = model(x)
+        assert output.shape == (1, OUTPUT_SIZE)
+
+    def test_predict_with_uncertainty_shapes(self):
+        """predict_with_uncertainty must return mean and std."""
+        model = TreeBaseline(input_size=INPUT_SIZE)
+        x = torch.randn(16, INPUT_SIZE)
+        mean, std = model.predict_with_uncertainty(x)
+        assert mean.shape == (16, OUTPUT_SIZE)
+        assert std.shape == (16, OUTPUT_SIZE)
+
+    def test_uncertainty_std_is_zero(self):
+        """
+        TreeBaseline is deterministic, so predict_with_uncertainty
+        must return zero standard deviation.
+        """
+        model = TreeBaseline(input_size=INPUT_SIZE)
+        x = torch.randn(8, INPUT_SIZE)
+        _, std = model.predict_with_uncertainty(x)
+        assert (
+            std == 0
+        ).all(), (
+            "TreeBaseline uncertainty should be zero (deterministic model)"
+        )
+
+    def test_fit_and_predict(self):
+        """fit() must train the internal tree; predictions must be finite."""
+        import numpy as np
+
+        model = TreeBaseline(input_size=INPUT_SIZE)
+        x_train = np.random.randn(100, INPUT_SIZE).astype(np.float32)
+        y_train = np.random.randn(100, OUTPUT_SIZE).astype(np.float32)
+        model.fit(x_train, y_train)
+
+        x_test = torch.randn(10, INPUT_SIZE)
+        output = model(x_test)
+        assert output.shape == (10, OUTPUT_SIZE)
+        assert torch.isfinite(
+            output
+        ).all(), "TreeBaseline output contains NaN or Inf after fit"
+
+    def test_eval_and_train_modes(self):
+        """eval() and train() must not raise errors."""
+        model = TreeBaseline(input_size=INPUT_SIZE)
+        model.eval()
+        assert not model.training
+        model.train()
+        assert model.training

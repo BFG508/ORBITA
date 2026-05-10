@@ -64,7 +64,8 @@ def generate_active_learning_dataset(
 
     if os.path.exists(output_csv_path):
         print(
-            f" [info] Skipping active learning dataset generation: {output_csv_path} already exists."
+            f" [info] Skipping active learning dataset "
+            f"generation: {output_csv_path} already exists."
         )
         return
 
@@ -95,7 +96,9 @@ def generate_active_learning_dataset(
         attempts += 1
         if attempts > max_attempts:
             raise RuntimeError(
-                f"Failed to generate valid orbits {max_attempts} times. Range might be physically invalid."
+                f"Failed to generate valid orbits "
+                f"{max_attempts} times. Range might "
+                "be physically invalid."
             )
 
         sma_cand = np.random.uniform(sma_bounds[0], sma_bounds[1], pool_size)
