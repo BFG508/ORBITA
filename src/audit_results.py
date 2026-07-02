@@ -7,6 +7,7 @@ Description:
 """
 
 from pathlib import Path
+import csv
 import re
 
 from config import MIN_SAFE_PERIGEE
@@ -14,6 +15,9 @@ from physics.oracle import R_EQ
 
 
 ARCHITECTURES = ("resnet", "mlp", "lstm", "linear", "tree")
+TIME_DOMAIN_CASES = 10000
+TIME_DOMAIN_STEPS_PER_CASE = 16
+SPACE_DOMAIN_SAMPLES = 100000
 ALTITUDE_BINS_KM = (
     (300, 640),
     (640, 980),
@@ -110,6 +114,34 @@ def _exists(path):
     return "OK" if path.exists() else "MISSING"
 
 
+def _count_csv_rows(path):
+    """Returns the number of data rows in a CSV file."""
+    with path.open(newline="") as f:
+        return max(sum(1 for _ in f) - 1, 0)
+
+
+def _count_time_domain_cases(path):
+    """Returns the number of unique benchmark cases in a time-domain CSV."""
+    with path.open(newline="") as f:
+        reader = csv.DictReader(f)
+        return len({row["Case_ID"] for row in reader})
+
+
+def _audit_benchmark_csv(root, relative, expected_rows, failures):
+    """Audits benchmark CSV existence and row count."""
+    path = root / relative
+    if not path.exists():
+        print(f"  {relative}: MISSING")
+        failures.append(relative)
+        return
+
+    row_count = _count_csv_rows(path)
+    status = "OK" if row_count == expected_rows else "BAD"
+    print(f"  {relative}: {status} ({row_count}/{expected_rows} rows)")
+    if row_count != expected_rows:
+        failures.append(f"{relative}:rows={row_count}/{expected_rows}")
+
+
 def main():
     """Runs the artifact audit and exits non-zero when required results miss."""
     root = Path(__file__).resolve().parents[1]
@@ -144,6 +176,13 @@ def main():
     print(f"  metrics_cv.csv: {_exists(cv_path)}")
     if not cv_path.exists():
         failures.append("data/metrics_cv.csv")
+    else:
+        with cv_path.open(newline="") as f:
+            reader = csv.DictReader(f)
+            cv_architectures = {row["architecture"] for row in reader}
+        missing_cv = sorted(set(ARCHITECTURES) - cv_architectures)
+        if missing_cv:
+            failures.append(f"metrics_cv:missing={','.join(missing_cv)}")
 
     print("\nResNet MoE grid:")
     missing_datasets = sorted(valid_cell_set - datasets)
@@ -180,16 +219,54 @@ def main():
         )
 
     print("\nBenchmarks:")
-    required_benchmarks = (
-        "data/benchmark_time_domain_resnet.csv",
-        "data/benchmark_space_domain_resnet.csv",
-        "data/metrics_benchmark.csv",
-    )
-    for relative in required_benchmarks:
+    expected_time_rows = TIME_DOMAIN_CASES * TIME_DOMAIN_STEPS_PER_CASE
+    for architecture in ARCHITECTURES:
+        relative = f"data/benchmark_time_domain_{architecture}.csv"
+        _audit_benchmark_csv(root, relative, expected_time_rows, failures)
         path = root / relative
-        print(f"  {relative}: {_exists(path)}")
-        if not path.exists():
-            failures.append(relative)
+        if path.exists():
+            case_count = _count_time_domain_cases(path)
+            case_status = "OK" if case_count == TIME_DOMAIN_CASES else "BAD"
+            print(
+                f"    cases: {case_status} "
+                f"({case_count}/{TIME_DOMAIN_CASES})"
+            )
+            if case_count != TIME_DOMAIN_CASES:
+                failures.append(
+                    f"{relative}:cases={case_count}/{TIME_DOMAIN_CASES}"
+                )
+
+        _audit_benchmark_csv(
+            root,
+            f"data/benchmark_space_domain_{architecture}.csv",
+            SPACE_DOMAIN_SAMPLES,
+            failures,
+        )
+
+    metrics_benchmark = root / "data/metrics_benchmark.csv"
+    print(f"  data/metrics_benchmark.csv: {_exists(metrics_benchmark)}")
+    if not metrics_benchmark.exists():
+        failures.append("data/metrics_benchmark.csv")
+    else:
+        with metrics_benchmark.open(newline="") as f:
+            reader = csv.DictReader(f)
+            metric_pairs = {
+                (row["architecture"], row["mode"]) for row in reader
+            }
+        required_pairs = {
+            (architecture, mode)
+            for architecture in ARCHITECTURES
+            for mode in ("time_domain", "space_domain")
+        }
+        missing_pairs = sorted(required_pairs - metric_pairs)
+        if missing_pairs:
+            print("    missing metrics:")
+            for architecture, mode in missing_pairs:
+                print(f"      - {architecture}:{mode}")
+            failures.extend(
+                f"metrics_benchmark:{architecture}:{mode}"
+                for architecture, mode in missing_pairs
+            )
 
     print("\nFigures:")
     figure_files = sorted((root / "figures").glob("*.*"))

@@ -11,6 +11,11 @@ This manifest records the expected local result artifacts for the current TFM te
 - Training metrics: `data/metrics_train.csv`.
 - Benchmark metrics: `data/metrics_benchmark.csv`.
 - CodeCarbon output: `data/emissions.csv`.
+- Full benchmark CSVs for every architecture:
+  - `data/benchmark_time_domain_{architecture}.csv`: 10,000 cases and
+    160,000 propagated time-step rows per architecture.
+  - `data/benchmark_space_domain_{architecture}.csv`: 100,000 Monte Carlo
+    samples per architecture.
 
 ## ResNet MoE Grid
 
@@ -40,6 +45,15 @@ ResNet performance figures:
 - `benchmark_space_domain_resnet_scatter`
 - `benchmark_space_domain_resnet_violin`
 
+LSTM performance figures:
+
+- `benchmark_time_domain_lstm_envelope`
+- `benchmark_space_domain_lstm_cdf`
+- `benchmark_space_domain_lstm_heatmap`
+- `benchmark_space_domain_lstm_histograms`
+- `benchmark_space_domain_lstm_scatter`
+- `benchmark_space_domain_lstm_violin`
+
 Ablation and comparison figures:
 
 - `ablation_time_domain_comparison`
@@ -63,4 +77,6 @@ Run this command from the repository root:
 python src/audit_results.py
 ```
 
-The audit verifies global models, CV metrics, the physically valid ResNet grid, ResNet benchmark CSVs, and all required final PNG/SVG figures.
+The audit verifies global models, CV metrics, the physically valid ResNet
+grid, all five architecture benchmark CSVs, benchmark row/case counts, and
+all required final PNG/SVG figures.

@@ -81,12 +81,27 @@ def _log_benchmark_metrics(model_type, mode, wall_time, num_samples):
         "num_samples",
     ]
 
-    write_header = not os.path.exists(metrics_file)
-    with open(metrics_file, "a", newline="") as f:
+    existing_rows = []
+    if os.path.exists(metrics_file):
+        with open(metrics_file, newline="") as f:
+            reader = csv.DictReader(f)
+            existing_rows = [
+                row
+                for row in reader
+                if not (
+                    row.get("architecture") == model_type
+                    and row.get("mode") == mode
+                )
+            ]
+
+    tmp_file = f"{metrics_file}.tmp"
+    with open(tmp_file, "w", newline="") as f:
         writer = csv.writer(f)
-        if write_header:
-            writer.writerow(header)
+        writer.writerow(header)
+        for row in existing_rows:
+            writer.writerow([row[column] for column in header])
         writer.writerow([model_type, mode, f"{wall_time:.2f}", num_samples])
+    os.replace(tmp_file, metrics_file)
 
     print(
         f" [metrics] Logged to {metrics_file}: "
@@ -259,7 +274,17 @@ def infer_model_type_from_path(model_path, fallback="resnet"):
 
 
 def run_time_domain_benchmark(
-    sma, ecc, inc, raan, aop, ta, max_tof, case_name="default", model_type=None
+    sma,
+    ecc,
+    inc,
+    raan,
+    aop,
+    ta,
+    max_tof,
+    case_name="default",
+    model_type=None,
+    model_cache=None,
+    verbose=True,
 ):
     """
     Execute the secular degradation test for a specific target orbit.
@@ -286,15 +311,18 @@ def run_time_domain_benchmark(
             - total_ai_time (float): Computation time used by the AI model [s].
     """
     model_str = model_type.upper() if model_type else "BEST AVAILABLE"
-    print(f"\n{'=' * 80}")
-    print(
-        f" TIME-DOMAIN BENCHMARK: SECULAR DEGRADATION ({case_name.upper()}) | ARCH: {model_str}"
-    )
-    print("=" * 80)
+    if verbose:
+        print(f"\n{'=' * 80}")
+        print(
+            " TIME-DOMAIN BENCHMARK: SECULAR DEGRADATION "
+            f"({case_name.upper()}) | ARCH: {model_str}"
+        )
+        print("=" * 80)
 
     # 0. Safety Check: Filter out subterranean or immediate re-entry orbits
     if sma * (1.0 - ecc) < MIN_SAFE_PERIGEE:
-        print(" [error] Aborting benchmark. Target orbit is unsafe.")
+        if verbose:
+            print(" [error] Aborting benchmark. Target orbit is unsafe.")
         return None, 0.0, 0.0
 
     # Generate the time grid (15-minute intervals)
@@ -306,26 +334,35 @@ def run_time_domain_benchmark(
             sma=sma, ecc=ecc, inc=inc, target_model_type=model_type
         )
     except ValueError as e:
-        print(f" [error] Routing failure: {e}")
+        if verbose:
+            print(f" [error] Routing failure: {e}")
         return None, 0.0, 0.0
 
     model_path = expert_model_path
     current_model_type = model_type or infer_model_type_from_path(model_path)
 
     if not os.path.exists(model_path):
-        print(
-            f" [error] Model weights not found for this domain: {model_path}"
-        )
+        if verbose:
+            print(
+                f" [error] Model weights not found for this domain: {model_path}"
+            )
         return None, 0.0, 0.0
 
-    # Load the expert model and its corresponding normalization
-    dataset = OrbitalDataset(dataset_path)
-    if current_model_type == "tree":
-        model = joblib.load(model_path)
+    # Load the expert model and its corresponding normalization once per batch.
+    if model_cache is None:
+        model_cache = {}
+    cache_key = (model_path, dataset_path, current_model_type)
+    if cache_key in model_cache:
+        model, dataset = model_cache[cache_key]
     else:
-        model = get_model_instance(current_model_type)
-        model.load_state_dict(torch.load(model_path, weights_only=True))
-    model.eval()
+        dataset = OrbitalDataset(dataset_path)
+        if current_model_type == "tree":
+            model = joblib.load(model_path)
+        else:
+            model = get_model_instance(current_model_type)
+            model.load_state_dict(torch.load(model_path, weights_only=True))
+        model.eval()
+        model_cache[cache_key] = (model, dataset)
 
     total_oracle_time = 0.0
     total_ai_time = 0.0
@@ -337,11 +374,12 @@ def run_time_domain_benchmark(
     prev_tof = 0.0
 
     # Print the table header for real-time console monitoring
-    print(
-        f" {'Time (s)':<10} | {'Radial (m)':<12} | "
-        f"{'In-Track (m)':<14} | {'Cross-Track (m)':<15}"
-    )
-    print("-" * 80)
+    if verbose:
+        print(
+            f" {'Time (s)':<10} | {'Radial (m)':<12} | "
+            f"{'In-Track (m)':<14} | {'Cross-Track (m)':<15}"
+        )
+        print("-" * 80)
 
     # =========================================================================
     # 1. PROPAGATION LOOP
@@ -378,10 +416,11 @@ def run_time_domain_benchmark(
         ric_error = eci_to_ric_error(pos_true, v_true, pos_est)
         err_r, err_i, err_c = ric_error
 
-        print(
-            f" {tof:<10.1f} | {err_r:>10.2f}   | "
-            f"{err_i:>12.2f}   | {err_c:>13.2f}"
-        )
+        if verbose:
+            print(
+                f" {tof:<10.1f} | {err_r:>10.2f}   | "
+                f"{err_i:>12.2f}   | {err_c:>13.2f}"
+            )
 
         # Prepend the Case ID to the row for downstream batch sorting
         results_log.append([case_name, tof, err_r, err_i, err_c])
@@ -395,11 +434,12 @@ def run_time_domain_benchmark(
     # =========================================================================
     # 2. PERFORMANCE SUMMARY
     # =========================================================================
-    print("-" * 80)
-    print(
-        f" Oracle Time: {total_oracle_time * 1000:.2f} ms | "
-        f"AI Time: {total_ai_time * 1000:.2f} ms"
-    )
+    if verbose:
+        print("-" * 80)
+        print(
+            f" Oracle Time: {total_oracle_time * 1000:.2f} ms | "
+            f"AI Time: {total_ai_time * 1000:.2f} ms"
+        )
 
     return results_log, total_oracle_time, total_ai_time
 
@@ -538,7 +578,8 @@ def run_space_domain_benchmark(
     else:
         out_file = output_filename
 
-    with open(out_file, "w", newline="") as f:
+    tmp_file = f"{out_file}.tmp"
+    with open(tmp_file, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(
             [
@@ -551,6 +592,7 @@ def run_space_domain_benchmark(
             ]
         )
         writer.writerows(results_log)
+    os.replace(tmp_file, out_file)
 
     print("-" * 80)
     print(" GLOBAL ERROR STATISTICS (Absolute values)")
@@ -606,7 +648,9 @@ def generate_random_test_cases(num_cases, max_tof=4 * 3600):
     return random_cases
 
 
-def run_time_domain_batch(test_cases, output_filename=None, model_type=None):
+def run_time_domain_batch(
+    test_cases, output_filename=None, model_type=None, verbose=True
+):
     """
     Manage the execution of multiple time-domain benchmark cases.
 
@@ -632,8 +676,11 @@ def run_time_domain_batch(test_cases, output_filename=None, model_type=None):
     total_batch_ai_time = 0.0
     successful_cases = 0
 
-    # Open the unified CSV file in write mode to stream data continuously
-    with open(output_filename, mode="w", newline="", encoding="utf-8") as file:
+    model_cache = {}
+    tmp_output = f"{output_filename}.tmp"
+
+    # Stream into a temporary file and replace the canonical CSV only on success.
+    with open(tmp_output, mode="w", newline="", encoding="utf-8") as file:
         writer = csv.writer(file)
 
         # Write the master header including the Case_ID for downstream sorting
@@ -653,6 +700,8 @@ def run_time_domain_batch(test_cases, output_filename=None, model_type=None):
                 max_tof=case["max_tof"],
                 case_name=case["name"],
                 model_type=model_type,
+                model_cache=model_cache,
+                verbose=verbose,
             )
 
             # Only write to the file if the orbit was safe and processed correctly
@@ -661,6 +710,14 @@ def run_time_domain_batch(test_cases, output_filename=None, model_type=None):
                 successful_cases += 1
                 total_batch_oracle_time += t_oracle
                 total_batch_ai_time += t_ai
+
+            if not verbose and successful_cases % 100 == 0:
+                print(
+                    f" Processed {successful_cases}/{len(test_cases)} "
+                    "time-domain cases..."
+                )
+
+    os.replace(tmp_output, output_filename)
 
     # Output the final performance summary to the console
     model_str = model_type.upper() if model_type else "BEST"
@@ -741,8 +798,20 @@ if __name__ == "__main__":
         action="store_true",
         help="Disable CodeCarbon tracking and metrics CSV logging.",
     )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress per-step benchmark tables during long official runs.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="NumPy random seed for reproducible benchmark cases.",
+    )
 
     args = parser.parse_args()
+    np.random.seed(args.seed)
 
     model_str = (
         args.model_type.upper() if args.model_type else "BEST AVAILABLE"
@@ -793,6 +862,7 @@ if __name__ == "__main__":
             test_cases=test_cases,
             output_filename=time_output,
             model_type=args.model_type,
+            verbose=not args.quiet,
         )
         wall = time.time() - t0
         if tracker is not None:
