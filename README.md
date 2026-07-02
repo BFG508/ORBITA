@@ -24,7 +24,7 @@ Unlike its predecessor ESTHER, which was developed in MATLAB, ORBITA is built en
 * **Green AI**: `CodeCarbon` (automated energy consumption and CO₂ emissions tracking per architecture).
 * **Training Diagnostics**: `TensorBoard` (real-time loss/LR tracking and ablation study comparison).
 * **Visualization & Analytics**: `Matplotlib` and `Seaborn` (CDF analysis, RIC error heatmaps, and comparative barplots for training time, model size, inference latency, energy, and cross-validation).
-* **Testing**: `pytest` (32 automated tests covering coordinate transforms, architectures, residuals, and configuration).
+* **Testing**: `pytest` (80 automated tests covering coordinate transforms, architectures, residuals, and configuration).
 
 ## 📂 Repository Structure
 * `/data` - Dynamically generated MEE orbital datasets (`.csv`), benchmark results, and metrics logs (`metrics_train.csv`, `metrics_benchmark.csv`, `metrics_cv.csv`, `emissions.csv`).
@@ -89,6 +89,10 @@ You can use the provided automation scripts to initialize the environment, insta
 5. **Run the Performance Benchmark**: Validate the computational speedup and evaluate RIC coordinate error degradation.
    ```bash
    python src/benchmark.py --model_type resnet
+   ```
+   For a non-destructive smoke run, write suffixed CSVs and disable tracking/log updates:
+   ```bash
+   python src/benchmark.py --model_type resnet --mode_choice 2 --space_samples 5 --output_suffix _smoke --no_tracking
    ```
 6. **K-Fold Cross-Validation**: Validate model robustness across data splits.
    ```bash

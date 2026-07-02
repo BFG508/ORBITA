@@ -412,7 +412,12 @@ def run_time_domain_benchmark(
     return results_log, total_oracle_time, total_ai_time
 
 
-def run_space_domain_benchmark(num_samples=1000, dt=900, model_type=None):
+def run_space_domain_benchmark(
+    num_samples=1000,
+    dt=900,
+    model_type=None,
+    output_filename=None,
+):
     """
     Executes the global Monte Carlo test across the entire LEO parameter space.
 
@@ -424,6 +429,8 @@ def run_space_domain_benchmark(num_samples=1000, dt=900, model_type=None):
         num_samples (int): Total number of random orbital states to evaluate.
         dt (float): Time of Flight for the single-step propagation [s].
         model_type (str): The architecture variant to benchmark.
+        output_filename (str): Optional output CSV path. Defaults to the
+            canonical architecture-specific benchmark file.
     """
     model_str = model_type.upper() if model_type else "BEST AVAILABLE"
     print("\n" + "=" * 80)
@@ -548,14 +555,19 @@ def run_space_domain_benchmark(num_samples=1000, dt=900, model_type=None):
         results_log.append([sma, ecc, inc, err_r, err_i, err_c])
 
         # Progress indicator
-        if (i + 1) % (num_samples // 10) == 0:
+        progress_interval = max(1, num_samples // 10)
+        if (i + 1) % progress_interval == 0:
             print(f" Processed {i + 1}/{num_samples} orbits...")
 
     # =========================================================================
     # 3. STATISTICS AND LOGGING
     # =========================================================================
     os.makedirs("data", exist_ok=True)
-    out_file = f"data/benchmark_space_domain_{model_type if model_type else 'best'}.csv"
+    if output_filename is None:
+        model_name = model_type if model_type else "best"
+        out_file = f"data/benchmark_space_domain_{model_name}.csv"
+    else:
+        out_file = output_filename
 
     with open(out_file, "w", newline="") as f:
         writer = csv.writer(f)
@@ -722,6 +734,44 @@ if __name__ == "__main__":
         default=None,
         help="Validation mode (1: Time, 2: Space, 3: Both). Bypasses input().",
     )
+    parser.add_argument(
+        "--time_cases",
+        type=int,
+        default=10000,
+        help="Number of randomized time-domain orbits (default: 10000).",
+    )
+    parser.add_argument(
+        "--space_samples",
+        type=int,
+        default=100000,
+        help="Number of randomized space-domain samples (default: 100000).",
+    )
+    parser.add_argument(
+        "--max_tof_seconds",
+        type=float,
+        default=4 * 3600,
+        help="Maximum time-domain propagation span in seconds (default: 14400).",
+    )
+    parser.add_argument(
+        "--propagation_dt_seconds",
+        type=float,
+        default=15 * 60,
+        help="Space-domain propagation step in seconds (default: 900).",
+    )
+    parser.add_argument(
+        "--output_suffix",
+        type=str,
+        default="",
+        help=(
+            "Optional suffix for benchmark CSV filenames, useful for smoke "
+            "runs that must not overwrite canonical datasets."
+        ),
+    )
+    parser.add_argument(
+        "--no_tracking",
+        action="store_true",
+        help="Disable CodeCarbon tracking and metrics CSV logging.",
+    )
 
     args = parser.parse_args()
 
@@ -745,57 +795,73 @@ if __name__ == "__main__":
         choice = input("\n Enter choice (1/2/3): ").strip()
 
     # Time-Domain Configuration
-    n_cases = 10000
-    max_tof = 4 * 3600
+    n_cases = args.time_cases
+    max_tof = args.max_tof_seconds
 
     # Space-Domain Configuration
-    monte_carlo_samples = 100000
-    propagation_dt = 15 * 60  # 15 minutes step
+    monte_carlo_samples = args.space_samples
+    propagation_dt = args.propagation_dt_seconds
+
+    suffix = args.output_suffix
+    model_name = args.model_type if args.model_type else "best"
+    time_output = f"data/benchmark_time_domain_{model_name}{suffix}.csv"
+    space_output = f"data/benchmark_space_domain_{model_name}{suffix}.csv"
 
     if choice in ["1", "3"]:
         test_cases = generate_random_test_cases(
             num_cases=n_cases, max_tof=max_tof
         )
-        tracker = EmissionsTracker(
-            project_name=(f"benchmark_time_domain_{args.model_type}"),
-            log_level="error",
-            output_dir="data",
-        )
-        tracker.start()
+        tracker = None
+        if not args.no_tracking:
+            tracker = EmissionsTracker(
+                project_name=(f"benchmark_time_domain_{args.model_type}"),
+                log_level="error",
+                output_dir="data",
+            )
+            tracker.start()
         t0 = time.time()
         n_ok, ai_time = run_time_domain_batch(
-            test_cases=test_cases, model_type=args.model_type
+            test_cases=test_cases,
+            output_filename=time_output,
+            model_type=args.model_type,
         )
         wall = time.time() - t0
-        tracker.stop()
-        _log_benchmark_metrics(
-            args.model_type or "best",
-            "time_domain",
-            wall,
-            n_ok,
-        )
+        if tracker is not None:
+            tracker.stop()
+        if not args.no_tracking:
+            _log_benchmark_metrics(
+                args.model_type or "best",
+                "time_domain",
+                wall,
+                n_ok,
+            )
 
     if choice in ["2", "3"]:
-        tracker = EmissionsTracker(
-            project_name=(f"benchmark_space_domain_{args.model_type}"),
-            log_level="error",
-            output_dir="data",
-        )
-        tracker.start()
+        tracker = None
+        if not args.no_tracking:
+            tracker = EmissionsTracker(
+                project_name=(f"benchmark_space_domain_{args.model_type}"),
+                log_level="error",
+                output_dir="data",
+            )
+            tracker.start()
         t0 = time.time()
         n_evaluated = run_space_domain_benchmark(
             num_samples=monte_carlo_samples,
             dt=propagation_dt,
             model_type=args.model_type,
+            output_filename=space_output,
         )
         wall = time.time() - t0
-        tracker.stop()
-        _log_benchmark_metrics(
-            args.model_type or "best",
-            "space_domain",
-            wall,
-            n_evaluated,
-        )
+        if tracker is not None:
+            tracker.stop()
+        if not args.no_tracking:
+            _log_benchmark_metrics(
+                args.model_type or "best",
+                "space_domain",
+                wall,
+                n_evaluated,
+            )
 
     if choice not in ["1", "2", "3"]:
         print(" Invalid choice. Exiting.")

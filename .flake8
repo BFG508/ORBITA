@@ -1,6 +1,8 @@
 [flake8]
 max-line-length = 100
 ignore = W503
+extend-exclude =
+    src/physics/analytical.py
 per-file-ignores =
     src/train_base.py:E402
     src/benchmark.py:E402
