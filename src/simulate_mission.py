@@ -58,8 +58,8 @@ def find_expert_system(sma, ecc, inc, target_model_type=None):
     base_models = [
         m
         for m in (
-            glob.glob("models/orbita_predictor_*.pth")
-            + glob.glob("models/orbita_predictor_*.joblib")
+            glob.glob("models/**/*.pth", recursive=True)
+            + glob.glob("models/**/*.joblib", recursive=True)
         )
         if "_finetuned" not in m
     ]
@@ -129,14 +129,15 @@ def find_expert_system(sma, ecc, inc, target_model_type=None):
                 dataset_path = f"data/orbita_dataset_{domain_str}.csv"
 
                 # Reconstruct the correct finetuned path dynamically
+                model_dir = os.path.dirname(base_model_path)
                 if model_arch:
                     finetuned_path = (
-                        f"models/orbita_predictor_{model_arch}"
+                        f"{model_dir}/orbita_predictor_{model_arch}"
                         f"_{domain_str}_finetuned.pth"
                     )
                 else:
                     finetuned_path = (
-                        f"models/orbita_predictor_{domain_str}_finetuned.pth"
+                        f"{model_dir}/orbita_predictor_{domain_str}_finetuned.pth"
                     )
 
                 if os.path.exists(finetuned_path):

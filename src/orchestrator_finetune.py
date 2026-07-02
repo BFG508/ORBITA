@@ -48,7 +48,7 @@ def run_fleet_finetuning(
     print("=" * 80)
 
     # Scan for base models, strictly ignoring those already fine-tuned
-    all_models = glob.glob("models/orbita_predictor_*.pth")
+    all_models = glob.glob("models/**/*.pth", recursive=True)
     base_models = [m for m in all_models if "_finetuned" not in m]
 
     if not base_models:
@@ -83,8 +83,9 @@ def run_fleet_finetuning(
             continue
 
         # Verify if the upgraded version already exists
-        finetuned_model_path = (
-            f"models/orbita_predictor_{params_str}_finetuned.pth"
+        model_dir = os.path.dirname(model_path)
+        finetuned_model_path = os.path.join(
+            model_dir, f"orbita_predictor_{params_str}_finetuned.pth"
         )
 
         # We don't skip the entire loop here, because the
@@ -115,7 +116,14 @@ def run_fleet_finetuning(
         # It's orbita_dataset_300-640_0.075-0.1_0-90.csv
         domain_str = f"{alt_str}_{ecc_str}_{inc_str}"
         base_csv = f"data/orbita_dataset_{domain_str}.csv"
-        finetune_csv = f"data/orbita_finetune_{params_str}.csv"
+        data_subdir = os.path.basename(model_dir)
+        if data_subdir in {"resnet", "mlp", "lstm", "linear", "tree"}:
+            finetune_dir = os.path.join("data", data_subdir)
+        else:
+            finetune_dir = "data"
+        finetune_csv = os.path.join(
+            finetune_dir, f"orbita_finetune_{params_str}.csv"
+        )
 
         if not os.path.exists(base_csv):
             print(

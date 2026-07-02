@@ -30,6 +30,7 @@ Unlike its predecessor ESTHER, which was developed in MATLAB, ORBITA is built en
 * `/data` - Dynamically generated MEE orbital datasets (`.csv`), benchmark results, and metrics logs (`metrics_train.csv`, `metrics_benchmark.csv`, `metrics_cv.csv`, `emissions.csv`).
 * `/models` - Saved model weights: PyTorch (`.pth`) and scikit-learn (`.joblib`) for the MoE expert fleet.
 * `/figures` - Exported analytical plots (`.png` and `.svg`).
+* `RESULTS.md` - Local manifest for trained models, valid MoE grid cells, metrics, benchmarks, and final figures.
 * `/logs` - TensorBoard training logs for interactive loss and learning rate diagnostics.
 * `/tests` - Automated test suite:
   * `test_coordinate_transforms.py` - Roundtrip tests for COE↔ECI, COE↔MEE, Kepler, and angular wrapping.
@@ -106,6 +107,10 @@ You can use the provided automation scripts to initialize the environment, insta
    python src/visualize_benchmark.py --mode ablation
    # Comparative metrics: training time, model size, inference latency, CodeCarbon, cross-validation
    python src/visualize_benchmark.py --mode metrics
+   ```
+8. **Result Audit**: Check that the expected local model, metrics, benchmark, and figure artifacts are present.
+   ```bash
+   python src/audit_results.py
    ```
 
 ### Testing

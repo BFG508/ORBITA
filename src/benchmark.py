@@ -241,6 +241,23 @@ def get_model_instance(model_type):
         raise ValueError(f"Unsupported model_type: '{model_type}'")
 
 
+def infer_model_type_from_path(model_path, fallback="resnet"):
+    """
+    Infers the architecture name from an ORBITA model filename.
+    """
+    basename = os.path.basename(model_path)
+    params_str = (
+        basename.replace("orbita_predictor_", "")
+        .replace(".pth", "")
+        .replace(".joblib", "")
+        .replace("_finetuned", "")
+    )
+    parts = params_str.split("_")
+    if len(parts) == 4:
+        return parts[0]
+    return fallback
+
+
 def run_time_domain_benchmark(
     sma, ecc, inc, raan, aop, ta, max_tof, case_name="default", model_type=None
 ):
@@ -292,33 +309,8 @@ def run_time_domain_benchmark(
         print(f" [error] Routing failure: {e}")
         return None, 0.0, 0.0
 
-    # Deduce the exact model file based on the selected architecture type
-    if model_type is not None:
-        dataset_filename = os.path.basename(dataset_path)
-        if model_type == "tree":
-            model_filename = dataset_filename.replace(
-                "dataset", f"predictor_{model_type}"
-            ).replace(".csv", ".joblib")
-        else:
-            model_filename = dataset_filename.replace(
-                "dataset", f"predictor_{model_type}"
-            ).replace(".csv", ".pth")
-        model_path = os.path.join("models", model_filename)
-        current_model_type = model_type
-    else:
-        model_path = expert_model_path
-        basename = os.path.basename(expert_model_path)
-        params_str = (
-            basename.replace("orbita_predictor_", "")
-            .replace(".pth", "")
-            .replace(".joblib", "")
-            .replace("_finetuned", "")
-        )
-        parts = params_str.split("_")
-        if len(parts) == 4:
-            current_model_type = parts[0]
-        else:
-            current_model_type = "resnet"
+    model_path = expert_model_path
+    current_model_type = model_type or infer_model_type_from_path(model_path)
 
     if not os.path.exists(model_path):
         print(
@@ -493,33 +485,10 @@ def run_space_domain_benchmark(
         except ValueError:
             continue  # Skip gracefully if the random state falls out of the total grid bounds
 
-        # Deduce the exact model file based on the architecture
-        if model_type is not None:
-            dataset_filename = os.path.basename(dataset_path)
-            if model_type == "tree":
-                model_filename = dataset_filename.replace(
-                    "dataset", f"predictor_{model_type}"
-                ).replace(".csv", ".joblib")
-            else:
-                model_filename = dataset_filename.replace(
-                    "dataset", f"predictor_{model_type}"
-                ).replace(".csv", ".pth")
-            model_path = os.path.join("models", model_filename)
-            current_model_type = model_type
-        else:
-            model_path = expert_model_path
-            basename = os.path.basename(expert_model_path)
-            params_str = (
-                basename.replace("orbita_predictor_", "")
-                .replace(".pth", "")
-                .replace(".joblib", "")
-                .replace("_finetuned", "")
-            )
-            parts = params_str.split("_")
-            if len(parts) == 4:
-                current_model_type = parts[0]
-            else:
-                current_model_type = "resnet"
+        model_path = expert_model_path
+        current_model_type = model_type or infer_model_type_from_path(
+            model_path
+        )
 
         if not os.path.exists(model_path):
             continue

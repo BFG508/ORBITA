@@ -22,6 +22,7 @@ import numpy as np
 from config import (
     AOP_BOUNDS,
     MAX_TOF_SECONDS,
+    MIN_SAFE_PERIGEE,
     RAAN_BOUNDS,
     SAMPLES_PER_EXPERT,
     TA_BOUNDS,
@@ -32,6 +33,17 @@ from config import (
 from generate_base_dataset import generate_training_data
 from physics.oracle import R_EQ
 from train_base import train_model
+
+
+def domain_can_contain_safe_orbit(sma_bounds, ecc_bounds):
+    """
+    Checks whether a grid cell contains at least one orbit above the minimum
+    safe perigee. If the best-case corner is invalid, random generation would
+    otherwise loop until its retry guard fails.
+    """
+    max_sma = sma_bounds[1]
+    min_ecc = ecc_bounds[0]
+    return max_sma * (1.0 - min_ecc) >= MIN_SAFE_PERIGEE
 
 
 def build_expert_grid(
@@ -121,7 +133,7 @@ def build_expert_grid(
 
                 ext = ".joblib" if model_type == "tree" else ".pth"
                 model_filename = (
-                    f"models/orbita_predictor_{model_type}"
+                    f"models/{model_type}/orbita_predictor_{model_type}"
                     f"_{sma_str}_{ecc_str}_{inc_str}{ext}"
                 )
 
@@ -134,6 +146,17 @@ def build_expert_grid(
                 print("=" * 75)
 
                 try:
+                    if not domain_can_contain_safe_orbit(
+                        expert_sma_bounds, expert_ecc_bounds
+                    ):
+                        print(
+                            " [info] Skipping physically invalid cell:"
+                            " no orbit in this domain satisfies the minimum"
+                            " safe perigee."
+                        )
+                        model_counter += 1
+                        continue
+
                     if os.path.exists(csv_filename) and os.path.exists(
                         model_filename
                     ):
@@ -176,7 +199,9 @@ def build_expert_grid(
                             f" (Architecture: {model_type.upper()})..."
                         )
                         train_model(
-                            csv_file=csv_filename, model_type=model_type
+                            csv_file=csv_filename,
+                            model_type=model_type,
+                            model_dir=f"models/{model_type}",
                         )
 
                     print(f"\n [info] EXPERT {model_counter} COMPLETE.")
@@ -206,6 +231,30 @@ if __name__ == "__main__":
         default="resnet",
         help="Select the neural architecture to train across the grid.",
     )
+    parser.add_argument(
+        "--sma_splits",
+        type=int,
+        default=5,
+        help="Number of altitude-domain splits (default: 5).",
+    )
+    parser.add_argument(
+        "--ecc_splits",
+        type=int,
+        default=4,
+        help="Number of eccentricity-domain splits (default: 4).",
+    )
+    parser.add_argument(
+        "--inc_splits",
+        type=int,
+        default=2,
+        help="Number of inclination-domain splits (default: 2).",
+    )
+    parser.add_argument(
+        "--samples_per_expert",
+        type=int,
+        default=SAMPLES_PER_EXPERT,
+        help="Monte Carlo samples per valid expert cell.",
+    )
 
     args = parser.parse_args()
 
@@ -214,9 +263,9 @@ if __name__ == "__main__":
         total_sma_bounds=TOTAL_SMA_BOUNDS,
         total_ecc_bounds=TOTAL_ECC_BOUNDS,
         total_inc_bounds=TOTAL_INC_BOUNDS,
-        sma_splits=1,
-        ecc_splits=1,
-        inc_splits=1,
-        samples_per_expert=SAMPLES_PER_EXPERT,
+        sma_splits=args.sma_splits,
+        ecc_splits=args.ecc_splits,
+        inc_splits=args.inc_splits,
+        samples_per_expert=args.samples_per_expert,
         model_type=args.model_type,
     )

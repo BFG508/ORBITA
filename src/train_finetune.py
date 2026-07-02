@@ -67,7 +67,7 @@ def fine_tune_model(
     else:
         new_model_name = name_without_ext + ".pth"
 
-    model_save_path = f"models/{new_model_name}"
+    model_save_path = os.path.join(os.path.dirname(base_model_path), new_model_name)
 
     if os.path.exists(model_save_path):
         print(

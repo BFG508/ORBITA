@@ -95,6 +95,7 @@ def train_model(
     batch_size=512,
     lr=1e-3,
     early_stopping_patience=20,
+    model_dir="models",
 ):
     """
     Executes the training and validation loop for the selected model.
@@ -111,6 +112,7 @@ def train_model(
         early_stopping_patience (int): Number of epochs without
             val_loss improvement before terminating training
             early. Set to `epochs` to effectively disable it.
+        model_dir (str): Directory where model weights are saved.
     """
 
     # 1. Dynamically determine the model save path
@@ -128,7 +130,7 @@ def train_model(
         model_filename = (
             name_without_ext.replace("dataset", target_prefix) + ".pth"
         )
-    model_save_path = f"models/{model_filename}"
+    model_save_path = os.path.join(model_dir, model_filename)
 
     if os.path.exists(model_save_path):
         # Even though training is skipped, ensure that this
@@ -223,7 +225,7 @@ def train_model(
         val_mse = float(np.mean((val_pred - val_y) ** 2))
 
         elapsed = time.time() - train_start
-        os.makedirs("models", exist_ok=True)
+        os.makedirs(model_dir, exist_ok=True)
         joblib.dump(model, model_save_path)
 
         print("-" * 80)
@@ -250,7 +252,7 @@ def train_model(
 
     best_val_loss = float("inf")
     epochs_without_improvement = 0
-    os.makedirs("models", exist_ok=True)
+    os.makedirs(model_dir, exist_ok=True)
 
     # 4. TensorBoard logging
     log_dir = f"logs/{name_without_ext}_{model_type}"
