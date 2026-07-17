@@ -10,7 +10,11 @@ This manifest records the expected local result artifacts for the current TFM te
 - Cross-validation summary: `data/metrics_cv.csv`.
 - Training metrics: `data/metrics_train.csv`.
 - Benchmark metrics: `data/metrics_benchmark.csv`.
-- CodeCarbon output: `data/emissions.csv`.
+- CodeCarbon output: `data/emissions.csv`. The emissions visualizer uses
+  only direct CodeCarbon rows and does not infer missing measurements. The
+  final energy and carbon-footprint figures stack the measured training,
+  time-domain benchmark, and space-domain benchmark phases available for
+  each architecture.
 - Full benchmark CSVs for every architecture:
   - `data/benchmark_time_domain_{architecture}.csv`: 10,000 cases and
     160,000 propagated time-step rows per architecture.
@@ -36,23 +40,16 @@ The valid grid therefore contains 38 cells. Base and fine-tuned ResNet expert we
 
 Final figures are exported in both PNG and SVG under `figures/`.
 
-ResNet performance figures:
+Individual performance figures (for ResNet, MLP, LSTM, Linear, and Decision Tree):
 
-- `benchmark_time_domain_resnet_envelope`
-- `benchmark_space_domain_resnet_cdf`
-- `benchmark_space_domain_resnet_heatmap`
-- `benchmark_space_domain_resnet_histograms`
-- `benchmark_space_domain_resnet_scatter`
-- `benchmark_space_domain_resnet_violin`
-
-LSTM performance figures:
-
-- `benchmark_time_domain_lstm_envelope`
-- `benchmark_space_domain_lstm_cdf`
-- `benchmark_space_domain_lstm_heatmap`
-- `benchmark_space_domain_lstm_histograms`
-- `benchmark_space_domain_lstm_scatter`
-- `benchmark_space_domain_lstm_violin`
+- `benchmark_time_domain_{architecture}_envelope`
+- `benchmark_space_domain_{architecture}_cdf`
+- `benchmark_space_domain_{architecture}_heatmap`
+- `benchmark_space_domain_{architecture}_heatmap_radial` (ResNet only)
+- `benchmark_space_domain_{architecture}_heatmap_cross_track` (ResNet only)
+- `benchmark_space_domain_{architecture}_histograms`
+- `benchmark_space_domain_{architecture}_scatter`
+- `benchmark_space_domain_{architecture}_violin`
 
 Ablation and comparison figures:
 

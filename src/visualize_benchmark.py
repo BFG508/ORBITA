@@ -166,7 +166,7 @@ def plot_time_domain(csv_path):
         alpha=0.3,
         linewidth=0,
         zorder=2,
-        label="5th-95th Percentile",
+        label="Percentil 5-95",
     )
     axes[0].plot(
         common_time,
@@ -174,12 +174,12 @@ def plot_time_domain(csv_path):
         color=COLOR_R,
         linewidth=2.5,
         zorder=3,
-        label="Mean Error",
+        label="Error medio",
     )
-    axes[0].set_ylabel("Radial Error [m]")
+    axes[0].set_ylabel("Error radial [m]")
     axes[0].set_ylim(bottom=0)
     axes[0].set_title(
-        f"ORBITA Secular Error Envelope ({num_cases} Cases)",
+        f"ORBITA: Envolvente de error secular ({num_cases} casos)",
         pad=15,
         fontweight="bold",
     )
@@ -195,7 +195,7 @@ def plot_time_domain(csv_path):
         zorder=2,
     )
     axes[1].plot(common_time, int_mean, color=COLOR_I, linewidth=2.5, zorder=3)
-    axes[1].set_ylabel("In-Track Error [m]")
+    axes[1].set_ylabel("Error tangencial [m]")
     axes[1].set_ylim(bottom=0)
 
     axes[2].fill_between(
@@ -208,8 +208,8 @@ def plot_time_domain(csv_path):
         zorder=2,
     )
     axes[2].plot(common_time, crs_mean, color=COLOR_C, linewidth=2.5, zorder=3)
-    axes[2].set_ylabel("Cross-Track Error [m]")
-    axes[2].set_xlabel("Time of Flight [h]", fontsize=12, fontweight="bold")
+    axes[2].set_ylabel("Error normal [m]")
+    axes[2].set_xlabel("Tiempo de vuelo [h]", fontsize=12, fontweight="bold")
     axes[2].set_xlim(left=15.0 / 60, right=common_time.max())
     axes[2].set_ylim(bottom=0)
 
@@ -241,9 +241,9 @@ def plot_space_domain_distributions(df, output_prefix):
     """
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
     components = [
-        ("Abs_Radial_m", "Absolute Radial Error", COLOR_R),
-        ("Abs_InTrack_m", "Absolute In-Track Error", COLOR_I),
-        ("Abs_CrossTrack_m", "Absolute Cross-Track Error", COLOR_C),
+        ("Abs_Radial_m", "Error radial absoluto", COLOR_R),
+        ("Abs_InTrack_m", "Error tangencial absoluto", COLOR_I),
+        ("Abs_CrossTrack_m", "Error normal absoluto", COLOR_C),
     ]
 
     for i, (ax, (col, title, color)) in enumerate(zip(axes, components)):
@@ -255,24 +255,26 @@ def plot_space_domain_distributions(df, output_prefix):
         p95_val = np.percentile(df[col], 95)
 
         ax.axvline(
-            mean_val, color="black", linestyle="-", linewidth=1.5, label="Mean"
+            mean_val, color="black", linestyle="-", linewidth=1.5, label="Media"
         )
         ax.axvline(
             p95_val,
             color="gray",
             linestyle="--",
             linewidth=1.5,
-            label=r"95$^{\mathrm{th}}$ Percentile",
+            label=r"Percentil 95",
         )
 
         ax.set_title(title, fontsize=12, fontweight="bold")
-        ax.set_xlabel("Absolute Error [m]")
+        ax.set_xlabel("Error absoluto [m]")
         ax.set_xlim(left=0)
 
         ax.grid(True, linestyle="-", alpha=0.6)
 
         if i > 0:
             ax.set_ylabel("")
+        else:
+            ax.set_ylabel("Densidad")
 
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(
@@ -285,7 +287,7 @@ def plot_space_domain_distributions(df, output_prefix):
     )
 
     plt.suptitle(
-        "MoE Generalization: Absolute RIC Error Distributions",
+        "Generalización MoE: Distribuciones de error RIC absoluto",
         x=0.516,
         y=1.05,
         fontweight="bold",
@@ -329,10 +331,10 @@ def plot_space_domain_scatter_trends(df, output_prefix, max_samples=5000):
         lowess=True,
     )
     axes[0].set_title(
-        "Absolute Radial Error vs. Altitude", fontsize=12, fontweight="bold"
+        "Error radial absoluto vs. Altitud", fontsize=12, fontweight="bold"
     )
-    axes[0].set_xlabel("Altitude [km]")
-    axes[0].set_ylabel("Absolute Radial Error [m]")
+    axes[0].set_xlabel("Altitud [km]")
+    axes[0].set_ylabel("Error radial absoluto [m]")
     axes[0].set_ylim(bottom=0)
     axes[0].set_xlim(
         left=(df_plot["SMA_km"] - R_EQ / 1e3).min(),
@@ -348,11 +350,11 @@ def plot_space_domain_scatter_trends(df, output_prefix, max_samples=5000):
         lowess=True,
     )
     axes[1].set_title(
-        "Absolute Radial Error vs. Eccentricity",
+        "Error radial absoluto vs. Excentricidad",
         fontsize=12,
         fontweight="bold",
     )
-    axes[1].set_xlabel("Eccentricity [-]")
+    axes[1].set_xlabel("Excentricidad [-]")
     axes[1].set_ylim(bottom=0)
     axes[1].set_xlim(left=df_plot["ECC"].min(), right=df_plot["ECC"].max())
 
@@ -365,9 +367,9 @@ def plot_space_domain_scatter_trends(df, output_prefix, max_samples=5000):
         lowess=True,
     )
     axes[2].set_title(
-        "Absolute Radial Error vs. Inclination", fontsize=12, fontweight="bold"
+        "Error radial absoluto vs. Inclinación", fontsize=12, fontweight="bold"
     )
-    axes[2].set_xlabel("Inclination [deg]")
+    axes[2].set_xlabel("Inclinación [°]")
     axes[2].set_ylim(bottom=0)
     axes[2].set_xlim(
         left=(np.rad2deg(df_plot["INC_rad"])).min(),
@@ -380,7 +382,7 @@ def plot_space_domain_scatter_trends(df, output_prefix, max_samples=5000):
             ax.set_ylabel("")
 
     plt.suptitle(
-        "MoE Generalization: Radial Boundary Condition Analysis",
+        "Generalización MoE: Análisis de condiciones de contorno radiales",
         x=0.514,
         fontweight="bold",
     )
@@ -394,7 +396,10 @@ def plot_space_domain_scatter_trends(df, output_prefix, max_samples=5000):
 
 
 def plot_domain_heatmap(
-    df, output_filename="figures/plot_space_domain_heatmap.png"
+    df,
+    output_filename="figures/plot_space_domain_heatmap.png",
+    error_column="Abs_InTrack_m",
+    component_label="In-Track",
 ):
     """
     Generates a clean Hexbin Heatmap using the ESTHER 'plasma' colormap
@@ -402,18 +407,22 @@ def plot_domain_heatmap(
 
     Args:
         df (pd.DataFrame): The space-domain dataset containing orbital parameters
-            ('SMA_km', 'ECC') for the 2D grid, and the absolute in-track error
-            ('Abs_InTrack_m') used to compute the mean error color density.
+            ('SMA_km', 'ECC') for the 2D grid, and the absolute RIC error
+            column used to compute the mean error color density.
         output_filename (str, optional): The exact file path where the generated
             heatmap figure (.png and .svg) will be exported. Defaults to
             "figures/plot_space_domain_heatmap.png".
+        error_column (str, optional): Absolute RIC error column to aggregate.
+            Defaults to "Abs_InTrack_m".
+        component_label (str, optional): Human-readable RIC component label.
+            Defaults to "In-Track".
     """
     _, ax = plt.subplots(figsize=(10, 8))
 
     hb = ax.hexbin(
         df["SMA_km"] - R_EQ / 1e3,
         df["ECC"],
-        C=df["Abs_InTrack_m"],
+        C=df[error_column],
         reduce_C_function=np.mean,
         gridsize=30,
         cmap="plasma",
@@ -423,17 +432,23 @@ def plot_domain_heatmap(
     )
 
     cbar = plt.colorbar(hb, ax=ax)
+    component_labels_es = {
+        "In-Track": "tangencial",
+        "Radial": "radial",
+        "Cross-Track": "normal",
+    }
+    label_es = component_labels_es.get(component_label, component_label)
     cbar.set_label(
-        "Mean Absolute In-Track Error [m]",
+        f"Error absoluto medio {label_es} [m]",
         labelpad=20,
         fontsize=12.5,
         fontweight="bold",
     )
 
-    ax.set_xlabel("Altitude [km]", fontsize=12)
-    ax.set_ylabel("Eccentricity [-]", fontsize=12)
+    ax.set_xlabel("Altitud [km]", fontsize=12)
+    ax.set_ylabel("Excentricidad [-]", fontsize=12)
     ax.set_title(
-        "MoE Topological Absolute Error Density Map", pad=15, fontweight="bold"
+        "Mapa de densidad topológica de error absoluto MoE", pad=15, fontweight="bold"
     )
     ax.grid(True, linestyle="-", alpha=0.6)
 
@@ -461,9 +476,9 @@ def plot_regime_violin(
     df["Altitude_km"] = df["SMA_km"] - R_EQ / 1e3
     bins = [0, 600, 1200, 2000]
     labels = [
-        "Low LEO (< 600km)",
-        "Medium LEO (600-1200km)",
-        "High LEO (> 1200km)",
+        "LEO bajo (< 600 km)",
+        "LEO medio (600-1200 km)",
+        "LEO alto (> 1200 km)",
     ]
     df["Regime"] = pd.cut(df["Altitude_km"], bins=bins, labels=labels)
 
@@ -487,12 +502,12 @@ def plot_regime_violin(
     )
 
     plt.title(
-        "Absolute Radial Error Distribution Across LEO Regimes",
+        "Distribución del error radial absoluto por régimen LEO",
         pad=15,
         fontweight="bold",
     )
-    plt.xlabel("Orbital Regime", labelpad=10, fontweight="bold")
-    plt.ylabel("Absolute Radial Error [m]")
+    plt.xlabel("Régimen orbital", labelpad=10, fontweight="bold")
+    plt.ylabel("Error radial absoluto [m]")
     plt.grid(True, linestyle="-", alpha=0.6)
 
     plt.tight_layout()
@@ -523,26 +538,26 @@ def plot_space_domain(csv_path):
     # 1. Plot CDF
     plt.figure(figsize=(9, 6))
     sns.ecdfplot(
-        df["Abs_Radial_m"], label="Radial Error", color=COLOR_R, linewidth=2
+        df["Abs_Radial_m"], label="Error radial", color=COLOR_R, linewidth=2
     )
     sns.ecdfplot(
-        df["Abs_InTrack_m"], label="In-Track Error", color=COLOR_I, linewidth=2
+        df["Abs_InTrack_m"], label="Error tangencial", color=COLOR_I, linewidth=2
     )
     sns.ecdfplot(
         df["Abs_CrossTrack_m"],
-        label="Cross-Track Error",
+        label="Error normal",
         color=COLOR_C,
         linewidth=2,
     )
 
     plt.axhline(0.95, color="gray", linestyle="--", linewidth=1)
     plt.title(
-        f"Cumulative Distribution Function ({model_name})",
+        f"Función de distribución acumulada ({model_name})",
         pad=15,
         fontweight="bold",
     )
-    plt.xlabel("Absolute Error [m]")
-    plt.ylabel("Cumulative Probability")
+    plt.xlabel("Error absoluto [m]")
+    plt.ylabel("Probabilidad acumulada")
     plt.xlim(left=0)
     plt.grid(True, linestyle="-", alpha=0.6)
     plt.legend(loc="lower right")
@@ -553,6 +568,18 @@ def plot_space_domain(csv_path):
     plot_space_domain_distributions(df, prefix)
     plot_space_domain_scatter_trends(df, prefix)
     plot_domain_heatmap(df, f"{prefix}_heatmap.png")
+    plot_domain_heatmap(
+        df,
+        f"{prefix}_heatmap_radial.png",
+        error_column="Abs_Radial_m",
+        component_label="Radial",
+    )
+    plot_domain_heatmap(
+        df,
+        f"{prefix}_heatmap_cross_track.png",
+        error_column="Abs_CrossTrack_m",
+        component_label="Cross-Track",
+    )
     plot_regime_violin(df, f"{prefix}_violin.png")
 
 
@@ -573,8 +600,8 @@ def plot_ablation_time_domain(data_dir="data", output_dir="figures"):
         "resnet": "ResNet",
         "mlp": "MLP",
         "lstm": "LSTM",
-        "linear": "Linear",
-        "tree": "Decision Tree",
+        "linear": "Lineal",
+        "tree": "Árbol de decisión",
     }
 
     available_data = {}
@@ -617,17 +644,17 @@ def plot_ablation_time_domain(data_dir="data", output_dir="figures"):
             means.index, means["CrossTrack_m"], color=color, linewidth=2.5
         )
 
-    axes[0].set_ylabel("Mean Radial Error [m]")
+    axes[0].set_ylabel("Error radial medio [m]")
     axes[0].set_title(
-        "Ablation Study: Secular Error Accumulation Over Time",
+        "Estudio de ablación: Acumulación de error secular en el tiempo",
         pad=15,
         fontweight="bold",
     )
     axes[0].legend(loc="upper left", frameon=True)
 
-    axes[1].set_ylabel("Mean In-Track Error [m]")
-    axes[2].set_ylabel("Mean Cross-Track Error [m]")
-    axes[2].set_xlabel("Time of Flight [h]", fontsize=12)
+    axes[1].set_ylabel("Error tangencial medio [m]")
+    axes[2].set_ylabel("Error normal medio [m]")
+    axes[2].set_xlabel("Tiempo de vuelo [h]", fontsize=12)
     axes[2].set_xlim(
         left=min(means.index.min() for means in available_data.values()),
         right=max(means.index.max() for means in available_data.values()),
@@ -661,8 +688,8 @@ def plot_ablation_space_domain(data_dir="data", output_dir="figures"):
         "resnet": "ResNet",
         "mlp": "MLP",
         "lstm": "LSTM",
-        "linear": "Linear",
-        "tree": "Decision Tree",
+        "linear": "Lineal",
+        "tree": "Árbol de decisión",
     }
 
     available_data = {}
@@ -690,19 +717,19 @@ def plot_ablation_space_domain(data_dir="data", output_dir="figures"):
     plt.text(
         0.02,
         0.96,
-        "95% Confidence Bound",
+        "Límite de confianza del 95%",
         transform=plt.gca().transAxes,
         fontsize=10,
         color="gray",
     )
 
     plt.title(
-        "Ablation Study: Generalization Performance (In-Track Error CDF)",
+        "Estudio de ablación: Rendimiento de generalización (CDF error tangencial)",
         pad=15,
         fontweight="bold",
     )
-    plt.xlabel("Absolute In-Track Error [m]")
-    plt.ylabel("Cumulative Probability")
+    plt.xlabel("Error tangencial absoluto [m]")
+    plt.ylabel("Probabilidad acumulada")
 
     if "linear" in available_data:
         plt.xscale("log")
@@ -729,8 +756,8 @@ LEGEND_MAP = {
     "resnet": "ResNet",
     "mlp": "MLP",
     "lstm": "LSTM",
-    "linear": "Linear",
-    "tree": "Decision Tree",
+    "linear": "Lineal",
+    "tree": "Árbol de decisión",
 }
 
 
@@ -743,6 +770,36 @@ def _load_metrics_csv(path):
         print(f" [warn] Metrics file not found: {path}")
         return None
     return pd.read_csv(path)
+
+
+def _extract_architecture(project_name):
+    """
+    Extracts the architecture token from CodeCarbon project names.
+
+    Examples:
+        train_resnet_orbita_dataset_...
+        benchmark_time_domain_lstm
+        benchmark_space_domain_tree
+    """
+    tokens = str(project_name).lower().split("_")
+    for architecture in ARCH_ORDER:
+        if architecture in tokens:
+            return architecture
+    return "unknown"
+
+
+def _infer_emission_phase(project_name):
+    """
+    Classifies direct CodeCarbon rows by measured run phase.
+    """
+    project_name = str(project_name).lower()
+    if project_name.startswith("train_"):
+        return "train"
+    if project_name.startswith("benchmark_time_domain_"):
+        return "benchmark_time_domain"
+    if project_name.startswith("benchmark_space_domain_"):
+        return "benchmark_space_domain"
+    return "unknown"
 
 
 def plot_training_time(data_dir="data", output_dir="figures"):
@@ -779,9 +836,9 @@ def plot_training_time(data_dir="data", output_dir="figures"):
             fontsize=10,
         )
 
-    ax.set_xlabel("Training Time [s]")
+    ax.set_xlabel("Tiempo de entrenamiento [s]")
     ax.set_title(
-        "Architecture Comparison: Training Time",
+        "Comparativa de arquitecturas: Tiempo de entrenamiento",
         pad=15,
         fontweight="bold",
     )
@@ -836,9 +893,9 @@ def plot_model_size(output_dir="figures"):
             fontsize=10,
         )
 
-    ax.set_xlabel("Average Model Size [MB]")
+    ax.set_xlabel("Tamaño medio del modelo [MB]")
     ax.set_title(
-        "Architecture Comparison: Model File Size",
+        "Comparativa de arquitecturas: Tamaño del modelo",
         pad=15,
         fontweight="bold",
     )
@@ -896,10 +953,15 @@ def plot_benchmark_time(data_dir="data", output_dir="figures"):
                 fontsize=10,
             )
 
-        mode_title = mode.replace("_", " ").title()
-        ax.set_xlabel("Wall-Clock Time [s]")
+        mode_titles_es = {
+            "time_domain": "Dominio temporal",
+            "space_domain": "Dominio espacial",
+        }
+        mode_title = mode_titles_es.get(mode, mode.replace("_", " ").title())
+        ax.set_xlabel("Tiempo de ejecución [s]")
         ax.set_title(
-            f"Architecture Comparison: " f"Inference Time ({mode_title})",
+            f"Comparativa de arquitecturas: "
+            f"Tiempo de inferencia ({mode_title})",
             pad=15,
             fontweight="bold",
         )
@@ -919,9 +981,8 @@ def plot_benchmark_time(data_dir="data", output_dir="figures"):
 
 def plot_emissions(data_dir="data", output_dir="figures"):
     """
-    Reads the CodeCarbon emissions.csv file and generates
-    comparative barplots of energy consumed (kWh) and
-    CO2 emissions (gCO2eq) per architecture.
+    Reads direct CodeCarbon emissions.csv rows and generates comparative
+    barplots of measured energy consumed (kWh) and CO2 emissions (gCO2eq).
     """
     emissions_file = os.path.join(data_dir, "emissions.csv")
     if not os.path.exists(emissions_file):
@@ -930,93 +991,142 @@ def plot_emissions(data_dir="data", output_dir="figures"):
 
     df = pd.read_csv(emissions_file)
 
-    # Extract the architecture from the project_name
-    # Format: "train_<arch>_..." or "benchmark_<mode>_<arch>"
-    def _extract_arch(project_name):
-        parts = str(project_name).split("_")
-        if parts[0] == "train" and len(parts) >= 2:
-            return parts[1]
-        elif parts[0] == "benchmark" and len(parts) >= 3:
-            return parts[2]
-        return "unknown"
+    df["architecture"] = df["project_name"].apply(_extract_architecture)
+    df["phase"] = df["project_name"].apply(_infer_emission_phase)
 
-    df["architecture"] = df["project_name"].apply(_extract_arch)
-
-    # Filter only known architectures
-    df = df[df["architecture"].isin(ARCH_ORDER)]
+    # Use only direct CodeCarbon measurements. Missing phases are not inferred.
+    df = df[
+        df["architecture"].isin(ARCH_ORDER)
+        & (df["phase"] != "unknown")
+    ]
 
     if df.empty:
-        print(" [warn] No recognized architectures in " "emissions.csv")
+        print(" [warn] No usable direct emissions found in " "emissions.csv")
         return
 
-    # Aggregate by architecture: sum energy and emissions
-    agg = (
-        df.groupby("architecture")
-        .agg(
-            energy_kwh=("energy_consumed", "sum"),
-            emissions_gco2=(
-                "emissions",
-                lambda x: x.sum() * 1000,
-            ),
+    phase_order = [
+        "train",
+        "benchmark_time_domain",
+        "benchmark_space_domain",
+    ]
+    phase_labels = {
+        "train": "Entrenamiento",
+        "benchmark_time_domain": "Benchmark temporal",
+        "benchmark_space_domain": "Benchmark espacial",
+    }
+    phase_colors = {
+        "train": (0.20, 0.02, 0.40),
+        "benchmark_time_domain": (0.15, 0.50, 0.55),
+        "benchmark_space_domain": (0.95, 0.52, 0.27),
+    }
+    ordered_architectures = [
+        a for a in ARCH_ORDER if a in df["architecture"].values
+    ]
+    labels = [LEGEND_MAP.get(a, a) for a in ordered_architectures]
+
+    energy_by_phase = (
+        df.pivot_table(
+            index="architecture",
+            columns="phase",
+            values="energy_consumed",
+            aggfunc="sum",
+            fill_value=0.0,
         )
-        .reindex([a for a in ARCH_ORDER if a in df["architecture"].values])
+        .reindex(index=ordered_architectures, columns=phase_order)
+        .fillna(0.0)
+    )
+    emissions_by_phase = (
+        df.assign(emissions_gco2=df["emissions"] * 1000)
+        .pivot_table(
+            index="architecture",
+            columns="phase",
+            values="emissions_gco2",
+            aggfunc="sum",
+            fill_value=0.0,
+        )
+        .reindex(index=ordered_architectures, columns=phase_order)
+        .fillna(0.0)
     )
 
     # --- Plot 1: Energy consumed ---
     fig, ax = plt.subplots(figsize=(9, 5))
-    labels = [LEGEND_MAP.get(a, a) for a in agg.index]
-    colors = [PALETTE_ABLATION.get(a, (0.5, 0.5, 0.5)) for a in agg.index]
-    bars = ax.barh(labels, agg["energy_kwh"], color=colors)
+    left = np.zeros(len(energy_by_phase))
+    for phase in phase_order:
+        values = energy_by_phase[phase].to_numpy()
+        ax.barh(
+            labels,
+            values,
+            left=left,
+            color=phase_colors[phase],
+            label=phase_labels[phase],
+        )
+        left += values
+    max_energy = energy_by_phase.sum(axis=1).max()
+    ax.set_xlim(right=max_energy * 1.16 if max_energy > 0 else 1.0)
 
-    for bar, val in zip(bars, agg["energy_kwh"]):
+    for index, val in enumerate(energy_by_phase.sum(axis=1)):
         ax.text(
-            bar.get_width() + bar.get_width() * 0.02,
-            bar.get_y() + bar.get_height() / 2,
+            val + max_energy * 0.02,
+            index,
             f"{val:.6f}",
             va="center",
             fontsize=10,
         )
 
-    ax.set_xlabel("Energy Consumed [kWh]")
+    ax.set_xlabel("Energía consumida [kWh]")
     ax.set_title(
-        "Architecture Comparison: Energy Consumption",
+        "Comparativa de arquitecturas: Consumo energético medido",
         pad=15,
         fontweight="bold",
     )
     ax.grid(True, axis="x", linestyle="-", alpha=0.4)
     ax.invert_yaxis()
+    ax.legend(frameon=False)
     plt.tight_layout()
     save_format(
         os.path.join(output_dir, "metrics_energy_kwh.png"),
-        "Energy Consumption Comparison",
+        "Measured Energy Consumption Comparison",
     )
     plt.close()
 
     # --- Plot 2: CO2 emissions ---
     fig, ax = plt.subplots(figsize=(9, 5))
-    bars = ax.barh(labels, agg["emissions_gco2"], color=colors)
+    left = np.zeros(len(emissions_by_phase))
+    for phase in phase_order:
+        values = emissions_by_phase[phase].to_numpy()
+        ax.barh(
+            labels,
+            values,
+            left=left,
+            color=phase_colors[phase],
+            label=phase_labels[phase],
+        )
+        left += values
+    max_emissions = emissions_by_phase.sum(axis=1).max()
+    ax.set_xlim(right=max_emissions * 1.16 if max_emissions > 0 else 1.0)
 
-    for bar, val in zip(bars, agg["emissions_gco2"]):
+    for index, val in enumerate(emissions_by_phase.sum(axis=1)):
         ax.text(
-            bar.get_width() + bar.get_width() * 0.02,
-            bar.get_y() + bar.get_height() / 2,
+            val + max_emissions * 0.02,
+            index,
             f"{val:.4f}",
             va="center",
             fontsize=10,
         )
 
-    ax.set_xlabel("CO₂ Emissions [gCO₂eq]")
+    ax.set_xlabel("Emisiones de CO₂ [gCO₂eq]")
     ax.set_title(
-        "Architecture Comparison: Carbon Footprint",
+        "Comparativa de arquitecturas: Huella de carbono medida",
         pad=15,
         fontweight="bold",
     )
     ax.grid(True, axis="x", linestyle="-", alpha=0.4)
     ax.invert_yaxis()
+    ax.legend(frameon=False)
     plt.tight_layout()
     save_format(
         os.path.join(output_dir, "metrics_co2_emissions.png"),
-        "CO2 Emissions Comparison",
+        "Measured CO2 Emissions Comparison",
     )
     plt.close()
 
@@ -1066,9 +1176,10 @@ def plot_cv_results(data_dir="data", output_dir="figures"):
             fontsize=9,
         )
 
-    ax.set_xlabel("Validation MSE (mean ± std)")
+    ax.set_xlabel("MSE de validación (media ± desv. típ.)")
     ax.set_title(
-        "Architecture Comparison: " "K-Fold Cross-Validation",
+        "Comparativa de arquitecturas: "
+        "Validación cruzada K-Fold",
         pad=15,
         fontweight="bold",
     )

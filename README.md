@@ -57,6 +57,8 @@ Unlike its predecessor ESTHER, which was developed in MATLAB, ORBITA is built en
   * `simulate_mission.py` - Final OBC flight simulator implementing the MoE Router and the Active Learning loop.
   * `benchmark.py` - Aerospace-grade evaluation script measuring CPU time, decomposing absolute ECI error into the local RIC frame, and exporting inference timing metrics.
   * `visualize_benchmark.py` - Telemetry and statistical visualization engine with three operating modes: `single` (per-model report), `ablation` (architecture error comparison), and `metrics` (training time, model size, inference latency, cross-validation, and CodeCarbon barplots).
+* `/scripts` - Automation scripts for reproducing TFM artifacts:
+  * `technical_closure.sh` / `technical_closure.bat` - Full pipeline to train models, evaluate benchmarks, generate figures, and run the audit.
 * `.flake8` - Flake8 linting configuration (PEP-8 compliance).
 * `requirements.txt` - Pinned Python environment dependencies for reproducibility.
 * `setup_windows.bat` / `setup_unix.sh` - Automated environment setup.
@@ -111,6 +113,13 @@ You can use the provided automation scripts to initialize the environment, insta
 8. **Result Audit**: Check that the expected local model, metrics, benchmark, and figure artifacts are present.
    ```bash
    python src/audit_results.py
+   ```
+9. **Technical Closure Pipeline**: Regenerate all TFM artifacts automatically (Dataset, Models, CV, Benchmarks, Figures, Audit).
+   ```bash
+   # On Windows
+   scripts\technical_closure.bat
+   # On macOS/Linux
+   ./scripts/technical_closure.sh
    ```
 
 ### Testing

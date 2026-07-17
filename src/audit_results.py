@@ -271,13 +271,7 @@ def main():
     print("\nFigures:")
     figure_files = sorted((root / "figures").glob("*.*"))
     print(f"  total files: {len(figure_files)}")
-    required_prefixes = (
-        "benchmark_time_domain_resnet_envelope",
-        "benchmark_space_domain_resnet_cdf",
-        "benchmark_space_domain_resnet_heatmap",
-        "benchmark_space_domain_resnet_histograms",
-        "benchmark_space_domain_resnet_scatter",
-        "benchmark_space_domain_resnet_violin",
+    required_prefixes = [
         "ablation_time_domain_comparison",
         "ablation_space_domain_cdf",
         "metrics_training_time",
@@ -287,7 +281,21 @@ def main():
         "metrics_energy_kwh",
         "metrics_co2_emissions",
         "metrics_cross_validation",
-    )
+    ]
+    for architecture in ARCHITECTURES:
+        required_prefixes.extend([
+            f"benchmark_time_domain_{architecture}_envelope",
+            f"benchmark_space_domain_{architecture}_cdf",
+            f"benchmark_space_domain_{architecture}_heatmap",
+            f"benchmark_space_domain_{architecture}_histograms",
+            f"benchmark_space_domain_{architecture}_scatter",
+            f"benchmark_space_domain_{architecture}_violin",
+        ])
+        if architecture == "resnet":
+            required_prefixes.extend([
+                f"benchmark_space_domain_{architecture}_heatmap_radial",
+                f"benchmark_space_domain_{architecture}_heatmap_cross_track",
+            ])
     for prefix in required_prefixes:
         png = root / "figures" / f"{prefix}.png"
         svg = root / "figures" / f"{prefix}.svg"

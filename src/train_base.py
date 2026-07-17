@@ -45,6 +45,22 @@ from ml.architecture import (
 from ml.dataset import get_dataloaders
 
 
+def _select_training_device(requested_device="auto"):
+    """
+    Selects the PyTorch device used by neural architectures.
+    """
+    requested_device = requested_device.lower()
+    if requested_device == "auto":
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    if requested_device == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError(
+            "CUDA was requested, but PyTorch cannot initialize a CUDA device."
+        )
+
+    return torch.device(requested_device)
+
+
 def _log_training_metrics(model_type, training_time, val_loss, model_path):
     """
     Appends a row to data/metrics_train.csv with the
@@ -96,6 +112,7 @@ def train_model(
     lr=1e-3,
     early_stopping_patience=20,
     model_dir="models",
+    device="auto",
 ):
     """
     Executes the training and validation loop for the selected model.
@@ -113,6 +130,7 @@ def train_model(
             val_loss improvement before terminating training
             early. Set to `epochs` to effectively disable it.
         model_dir (str): Directory where model weights are saved.
+        device (str): 'auto', 'cpu', or 'cuda' for neural architectures.
     """
 
     # 1. Dynamically determine the model save path
@@ -196,6 +214,12 @@ def train_model(
             f"Unsupported model_type: '{model_type}'. "
             "Choose from: resnet, linear, mlp, lstm, tree."
         )
+
+    training_device = None
+    if model_type != "tree":
+        training_device = _select_training_device(device)
+        model = model.to(training_device)
+        print(f" [info] Training device: {training_device}")
 
     # =========================================================
     # TREE BRANCH: scikit-learn training path
@@ -282,6 +306,8 @@ def train_model(
         train_loss = 0.0
 
         for batch_x, batch_y in train_loader:
+            batch_x = batch_x.to(training_device)
+            batch_y = batch_y.to(training_device)
             optimizer.zero_grad()  # Clear old gradients
             predictions = model(batch_x)  # Forward pass
             loss = criterion(predictions, batch_y)  # Compute error
@@ -298,6 +324,8 @@ def train_model(
 
         with torch.no_grad():  # Disable gradient calc for validation
             for batch_x, batch_y in val_loader:
+                batch_x = batch_x.to(training_device)
+                batch_y = batch_y.to(training_device)
                 predictions = model(batch_x)
                 loss = criterion(predictions, batch_y)
                 val_loss += loss.item() * batch_x.size(0)
@@ -382,7 +410,19 @@ if __name__ == "__main__":
         help="Select the neural architecture to train.",
     )
 
+    parser.add_argument(
+        "--device",
+        type=str,
+        choices=["auto", "cpu", "cuda"],
+        default="auto",
+        help="Select the PyTorch training device for neural models.",
+    )
+
     args = parser.parse_args()
 
     # Execute training with the selected parameters
-    train_model(csv_file=args.dataset, model_type=args.model_type)
+    train_model(
+        csv_file=args.dataset,
+        model_type=args.model_type,
+        device=args.device,
+    )

@@ -67,3 +67,11 @@ plots/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Temporary Files
+tmp/
+*.tmp
+*.bak
+
+# Documentation & Reports
+*.pdf

@@ -6,15 +6,11 @@ echo "================================================"
 echo "ORBITA: INITIALIZING SETUP"
 echo "================================================"
 
-echo -e "\n[1/3] Cloning the repository..."
-git clone https://github.com/BFG508/ORBITA.git
-cd ORBITA
-
-echo -e "\n[2/3] Creating the virtual environment..."
+echo -e "\n[1/2] Creating the virtual environment..."
 python3 -m venv .venv
 source .venv/bin/activate
 
-echo -e "\n[3/3] Installing dependencies..."
+echo -e "\n[2/2] Installing dependencies..."
 pip install -r requirements.txt
 
 echo -e "\n================================================"
