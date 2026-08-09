@@ -78,15 +78,22 @@ def _expected_valid_grid_cells():
 
 
 def _discover_grid_datasets(root):
-    """Returns discovered grid dataset keys under data/."""
+    """Returns discovered grid dataset keys under data/ datasets folders."""
     keys = set()
-    for path in (root / "data").glob("orbita_dataset_*.csv"):
-        match = DATASET_RE.match(path.name)
-        if not match:
+    for search_dir in [
+        root / "data" / "datasets" / "training",
+        root / "data" / "datasets",
+        root / "data",
+    ]:
+        if not search_dir.exists():
             continue
-        key = match.groups()
-        if key != ("300-2000", "0.0000-0.1000", "0-90"):
-            keys.add(key)
+        for path in search_dir.glob("orbita_dataset_*.csv"):
+            match = DATASET_RE.match(path.name)
+            if not match:
+                continue
+            key = match.groups()
+            if key != ("300-2000", "0.0000-0.1000", "0-90"):
+                keys.add(key)
     return keys
 
 
@@ -109,6 +116,40 @@ def _discover_models(root):
     return base, fine_tuned
 
 
+def _resolve_file(root, relative):
+    """Resolves relative file path checking new folder structure first, then root data/."""
+    p = root / relative
+    if p.exists():
+        return p
+    # Check alternate subfolder mappings
+    rel_str = str(relative)
+    if rel_str.startswith("data/metrics_") or rel_str.startswith("data/emissions"):
+        filename = p.name
+        alt = root / "data" / "metrics" / filename
+        if alt.exists():
+            return alt
+    elif rel_str.startswith("data/benchmark_"):
+        filename = p.name
+        alt_global = root / "data" / "benchmarks" / "ablation_global" / filename
+        alt_resnet = root / "data" / "benchmarks" / "ablation_resnet" / filename
+        if alt_global.exists():
+            return alt_global
+        if alt_resnet.exists():
+            return alt_resnet
+    elif (
+        rel_str.startswith("data/orbita_dataset")
+        or rel_str.startswith("data/datasets/orbita_dataset")
+    ):
+        filename = p.name
+        alt_tr = root / "data" / "datasets" / "training" / filename
+        alt_ds = root / "data" / "datasets" / filename
+        if alt_tr.exists():
+            return alt_tr
+        if alt_ds.exists():
+            return alt_ds
+    return p
+
+
 def _exists(path):
     """Formats a path existence check for console output."""
     return "OK" if path.exists() else "MISSING"
@@ -129,7 +170,7 @@ def _count_time_domain_cases(path):
 
 def _audit_benchmark_csv(root, relative, expected_rows, failures):
     """Audits benchmark CSV existence and row count."""
-    path = root / relative
+    path = _resolve_file(root, relative)
     if not path.exists():
         print(f"  {relative}: MISSING")
         failures.append(relative)
@@ -140,6 +181,48 @@ def _audit_benchmark_csv(root, relative, expected_rows, failures):
     print(f"  {relative}: {status} ({row_count}/{expected_rows} rows)")
     if row_count != expected_rows:
         failures.append(f"{relative}:rows={row_count}/{expected_rows}")
+
+
+def _resolve_figure(root, prefix, ext):
+    """Resolves figure path checking subdirectories benchmarks/<arch>, ablation_global, etc."""
+    filename = f"{prefix}.{ext}"
+    candidates = []
+    if prefix.startswith("benchmark_"):
+        arch = "resnet"
+        for a in ARCHITECTURES:
+            if f"_{a}_" in prefix or prefix.endswith(f"_{a}"):
+                arch = a
+                break
+        candidates = [
+            root / "figures" / "benchmarks" / arch / filename,
+            root / "figures" / "benchmarks" / filename,
+            root / "figures" / filename,
+        ]
+    elif prefix == "orbita_expert_mesh":
+        candidates = [
+            root / "figures" / filename,
+            root / "figures" / "ablation_resnet" / filename,
+        ]
+    elif prefix.startswith("ablation_") and ("resnet" not in prefix):
+        candidates = [
+            root / "figures" / "ablation_global" / filename,
+            root / "figures" / filename,
+        ]
+    elif prefix.startswith("metrics_"):
+        candidates = [
+            root / "figures" / "metrics" / filename,
+            root / "figures" / filename,
+        ]
+    else:
+        candidates = [
+            root / "figures" / "ablation_resnet" / filename,
+            root / "figures" / filename,
+        ]
+
+    for c in candidates:
+        if c.exists():
+            return c
+    return candidates[0]
 
 
 def main():
@@ -156,26 +239,33 @@ def main():
     print("=" * 80)
 
     print("\nGlobal models and CV:")
-    global_dataset = root / "data/orbita_dataset_300-2000_0.0000-0.1000_0-90.csv"
+    global_dataset = _resolve_file(root, "data/orbita_dataset_300-2000_0.0000-0.1000_0-90.csv")
     print(f"  global dataset: {_exists(global_dataset)}")
     for architecture in ARCHITECTURES:
         extension = "joblib" if architecture == "tree" else "pth"
-        model_path = (
-            root
-            / "models"
-            / (
-                f"orbita_predictor_{architecture}_"
-                f"300-2000_0.0000-0.1000_0-90.{extension}"
-            )
+        model_filename = (
+            f"orbita_predictor_{architecture}_"
+            f"300-2000_0.0000-0.1000_0-90.{extension}"
         )
+        model_candidates = [
+            root / "models" / architecture / "base" / model_filename,
+            root / "models" / architecture / model_filename,
+            root / "models" / model_filename,
+        ]
+        model_path = model_candidates[-1]
+        for mc in model_candidates:
+            if mc.exists():
+                model_path = mc
+                break
+
         print(f"  {architecture:>6} model: {_exists(model_path)}")
         if not model_path.exists():
             failures.append(str(model_path.relative_to(root)))
 
-    cv_path = root / "data/metrics_cv.csv"
+    cv_path = _resolve_file(root, "data/metrics/metrics_cv.csv")
     print(f"  metrics_cv.csv: {_exists(cv_path)}")
     if not cv_path.exists():
-        failures.append("data/metrics_cv.csv")
+        failures.append("data/metrics/metrics_cv.csv")
     else:
         with cv_path.open(newline="") as f:
             reader = csv.DictReader(f)
@@ -223,7 +313,7 @@ def main():
     for architecture in ARCHITECTURES:
         relative = f"data/benchmark_time_domain_{architecture}.csv"
         _audit_benchmark_csv(root, relative, expected_time_rows, failures)
-        path = root / relative
+        path = _resolve_file(root, relative)
         if path.exists():
             case_count = _count_time_domain_cases(path)
             case_status = "OK" if case_count == TIME_DOMAIN_CASES else "BAD"
@@ -243,7 +333,7 @@ def main():
             failures,
         )
 
-    metrics_benchmark = root / "data/metrics_benchmark.csv"
+    metrics_benchmark = _resolve_file(root, "data/metrics_benchmark.csv")
     print(f"  data/metrics_benchmark.csv: {_exists(metrics_benchmark)}")
     if not metrics_benchmark.exists():
         failures.append("data/metrics_benchmark.csv")
@@ -269,7 +359,10 @@ def main():
             )
 
     print("\nFigures:")
-    figure_files = sorted((root / "figures").glob("*.*"))
+    figure_files = [
+        f for f in sorted((root / "figures").glob("**/*.*"))
+        if f.is_file() and not f.name.startswith(".")
+    ]
     print(f"  total files: {len(figure_files)}")
     required_prefixes = [
         "ablation_time_domain_comparison",
@@ -281,6 +374,7 @@ def main():
         "metrics_energy_kwh",
         "metrics_co2_emissions",
         "metrics_cross_validation",
+        "orbita_expert_mesh",
     ]
     for architecture in ARCHITECTURES:
         required_prefixes.extend([
@@ -297,8 +391,8 @@ def main():
                 f"benchmark_space_domain_{architecture}_heatmap_cross_track",
             ])
     for prefix in required_prefixes:
-        png = root / "figures" / f"{prefix}.png"
-        svg = root / "figures" / f"{prefix}.svg"
+        png = _resolve_figure(root, prefix, "png")
+        svg = _resolve_figure(root, prefix, "svg")
         print(f"  {prefix}: PNG={_exists(png)} SVG={_exists(svg)}")
         if not png.exists():
             failures.append(str(png.relative_to(root)))

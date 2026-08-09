@@ -67,7 +67,13 @@ def fine_tune_model(
     else:
         new_model_name = name_without_ext + ".pth"
 
-    model_save_path = os.path.join(os.path.dirname(base_model_path), new_model_name)
+    dir_name = os.path.dirname(base_model_path)
+    if dir_name.endswith("/base") or dir_name.endswith("\\base"):
+        finetuned_dir = os.path.join(os.path.dirname(dir_name), "finetuned")
+    else:
+        finetuned_dir = os.path.join("models", model_type, "finetuned")
+    os.makedirs(finetuned_dir, exist_ok=True)
+    model_save_path = os.path.join(finetuned_dir, new_model_name)
 
     if os.path.exists(model_save_path):
         print(
@@ -95,7 +101,16 @@ def fine_tune_model(
     else:
         domain_str = params_str
 
-    base_csv_path = f"data/orbita_dataset_{domain_str}.csv"
+    base_csv_candidates = [
+        f"data/datasets/training/orbita_dataset_{domain_str}.csv",
+        f"data/datasets/orbita_dataset_{domain_str}.csv",
+        f"data/orbita_dataset_{domain_str}.csv",
+    ]
+    base_csv_path = base_csv_candidates[-1]
+    for candidate in base_csv_candidates:
+        if os.path.exists(candidate):
+            base_csv_path = candidate
+            break
 
     if not os.path.exists(base_csv_path):
         raise FileNotFoundError(
@@ -142,7 +157,7 @@ def fine_tune_model(
     epochs_without_improvement = 0
 
     # 4. TensorBoard logging
-    log_dir = f"logs/finetune_{params_str}"
+    log_dir = f"logs/finetuning/{model_type}/finetune_{params_str}"
     writer = SummaryWriter(log_dir=log_dir)
 
     # Console output header for telemetry tracking

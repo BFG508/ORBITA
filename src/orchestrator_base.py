@@ -121,9 +121,9 @@ def build_expert_grid(
                 expert_inc_max = expert_inc_min + inc_step
                 expert_inc_bounds = (expert_inc_min, expert_inc_max)
 
-                deg_min = int(np.degrees(expert_inc_min))
-                deg_max = int(np.degrees(expert_inc_max))
-                inc_str = f"{deg_min}-{deg_max}"
+                deg_min = np.degrees(expert_inc_min)
+                deg_max = np.degrees(expert_inc_max)
+                inc_str = f"{deg_min:.2f}-{deg_max:.2f}"
 
                 csv_filename = (
                     f"data/orbita_dataset_{sma_str}_{ecc_str}_{inc_str}.csv"
@@ -131,11 +131,16 @@ def build_expert_grid(
 
                 import os
 
-                ext = ".joblib" if model_type == "tree" else ".pth"
-                model_filename = (
-                    f"models/{model_type}/orbita_predictor_{model_type}"
-                    f"_{sma_str}_{ecc_str}_{inc_str}{ext}"
-                )
+                if model_type == "tree":
+                    model_filename = (
+                        f"models/tree/orbita_predictor_tree_"
+                        f"{sma_str}_{ecc_str}_{inc_str}.joblib"
+                    )
+                else:
+                    model_filename = (
+                        f"models/{model_type}/base/orbita_predictor_{model_type}"
+                        f"_{sma_str}_{ecc_str}_{inc_str}.pth"
+                    )
 
                 print("\n" + "=" * 75)
                 print(f" PROCESSING EXPERT {model_counter}/{total_models}")
@@ -198,10 +203,15 @@ def build_expert_grid(
                             f"\n [step 2] Training neural network"
                             f" (Architecture: {model_type.upper()})..."
                         )
+                        target_model_dir = (
+                            "models/tree"
+                            if model_type == "tree"
+                            else f"models/{model_type}/base"
+                        )
                         train_model(
                             csv_file=csv_filename,
                             model_type=model_type,
-                            model_dir=f"models/{model_type}",
+                            model_dir=target_model_dir,
                         )
 
                     print(f"\n [info] EXPERT {model_counter} COMPLETE.")

@@ -18,6 +18,7 @@ Description:
 """
 
 import csv
+import os
 
 import numpy as np
 import torch
@@ -272,15 +273,23 @@ if __name__ == "__main__":
     )
     ecc_str = f"{ECC_BOUNDS[0]:.4f}-{ECC_BOUNDS[1]:.4f}"
     inc_str = (
-        f"{int(np.degrees(INC_BOUNDS[0]))}"
-        f"-{int(np.degrees(INC_BOUNDS[1]))}"
+        f"{np.degrees(INC_BOUNDS[0]):.2f}"
+        f"-{np.degrees(INC_BOUNDS[1]):.2f}"
     )
 
     domain_identifier = f"{sma_str}_{ecc_str}_{inc_str}"
 
-    base_model = f"models/orbita_predictor_resnet_{domain_identifier}.pth"
-    base_csv = f"data/orbita_dataset_{domain_identifier}.csv"
-    output_csv = f"data/orbita_finetune_resnet_{domain_identifier}.csv"
+    base_model = (
+        f"models/resnet/base/orbita_predictor_resnet_{domain_identifier}.pth"
+    )
+    base_csv = (
+        f"data/datasets/training/orbita_dataset_{domain_identifier}.csv"
+    )
+    finetune_dir = "data/datasets/finetuning/resnet"
+    os.makedirs(finetune_dir, exist_ok=True)
+    output_csv = os.path.join(
+        finetune_dir, f"orbita_finetune_resnet_{domain_identifier}.csv"
+    )
 
     # 3. Execute
     generate_active_learning_dataset(

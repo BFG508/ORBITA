@@ -36,6 +36,12 @@ import torch
 logging.getLogger("codecarbon").disabled = True
 from codecarbon import EmissionsTracker
 
+from concurrent.futures import ProcessPoolExecutor
+
+torch.set_num_threads(1)
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+
 from generate_base_dataset import MIN_SAFE_PERIGEE
 from ml.architecture import (
     LinearBaseline,
@@ -89,8 +95,7 @@ def _log_benchmark_metrics(model_type, mode, wall_time, num_samples):
                 row
                 for row in reader
                 if not (
-                    row.get("architecture") == model_type
-                    and row.get("mode") == mode
+                    row.get("architecture") == model_type and row.get("mode") == mode
                 )
             ]
 
@@ -184,9 +189,7 @@ def execute_ai_step(sma, ecc, inc, raan, aop, ta, dt, model, dataset):
     p_in, f_in, g_in, h_in, k_in, l_in = mee_current
 
     # Build the raw feature vector and normalize it using the expert's statistics
-    raw_input = np.array(
-        [p_in, f_in, g_in, h_in, k_in, np.sin(l_in), np.cos(l_in), dt]
-    )
+    raw_input = np.array([p_in, f_in, g_in, h_in, k_in, np.sin(l_in), np.cos(l_in), dt])
     norm_input = (raw_input - dataset.x_mean) / dataset.x_std
     tensor_input = torch.tensor(norm_input, dtype=torch.float32).unsqueeze(0)
 
@@ -285,6 +288,7 @@ def run_time_domain_benchmark(
     model_type=None,
     model_cache=None,
     verbose=True,
+    use_finetuned=True,
 ):
     """
     Execute the secular degradation test for a specific target orbit.
@@ -331,7 +335,11 @@ def run_time_domain_benchmark(
     # Locate the correct Mixture of Experts (MoE) cell for the current state
     try:
         expert_model_path, dataset_path = find_expert_system(
-            sma=sma, ecc=ecc, inc=inc, target_model_type=model_type
+            sma=sma,
+            ecc=ecc,
+            inc=inc,
+            target_model_type=model_type,
+            use_finetuned=use_finetuned,
         )
     except ValueError as e:
         if verbose:
@@ -343,9 +351,7 @@ def run_time_domain_benchmark(
 
     if not os.path.exists(model_path):
         if verbose:
-            print(
-                f" [error] Model weights not found for this domain: {model_path}"
-            )
+            print(f" [error] Model weights not found for this domain: {model_path}")
         return None, 0.0, 0.0
 
     # Load the expert model and its corresponding normalization once per batch.
@@ -426,8 +432,8 @@ def run_time_domain_benchmark(
         results_log.append([case_name, tof, err_r, err_i, err_c])
 
         # Update current orbital elements for the next recursive step
-        curr_sma, curr_ecc, curr_inc, curr_raan, curr_aop, curr_ta = (
-            eci_to_coe(MU, pos_est, vel_est)
+        curr_sma, curr_ecc, curr_inc, curr_raan, curr_aop, curr_ta = eci_to_coe(
+            MU, pos_est, vel_est
         )
         prev_tof = tof
 
@@ -449,6 +455,7 @@ def run_space_domain_benchmark(
     dt=900,
     model_type=None,
     output_filename=None,
+    use_finetuned=True,
 ):
     """
     Executes the global Monte Carlo test across the entire LEO parameter space.
@@ -466,9 +473,7 @@ def run_space_domain_benchmark(
     """
     model_str = model_type.upper() if model_type else "BEST AVAILABLE"
     print("\n" + "=" * 80)
-    print(
-        f" 🌐 SPACE-DOMAIN BENCHMARK: GLOBAL LEO COVERAGE | ARCH: {model_str}"
-    )
+    print(f" 🌐 SPACE-DOMAIN BENCHMARK: GLOBAL LEO COVERAGE | ARCH: {model_str}")
     print("=" * 80)
     print(f" Generating {num_samples} random orbits...")
 
@@ -502,8 +507,6 @@ def run_space_domain_benchmark(
     ta_pool = np.array(ta_pool)
 
     # Cache dictionaries to prevent continuous I/O read operations of .pth files
-    loaded_models = {}
-    loaded_datasets = {}
 
     results_log = []
     r_errors, i_errors, c_errors = [], [], []
@@ -511,62 +514,37 @@ def run_space_domain_benchmark(
     print(f" Propagating all samples by {dt} seconds (dt)...\n")
 
     # =========================================================================
-    # 2. GLOBAL VALIDATION LOOP
+    # 2. GLOBAL VALIDATION LOOP (PARALLEL)
     # =========================================================================
-    for i in range(num_samples):
-        sma, ecc, inc = sma_pool[i], ecc_pool[i], inc_pool[i]
-        raan, aop, ta = raan_pool[i], aop_pool[i], ta_pool[i]
-
-        # Route state to its designated MoE cell
-        try:
-            expert_model_path, dataset_path = find_expert_system(
-                sma, ecc, inc, target_model_type=model_type
-            )
-        except ValueError:
-            continue  # Skip gracefully if the random state falls out of the total grid bounds
-
-        model_path = expert_model_path
-        current_model_type = model_type or infer_model_type_from_path(
-            model_path
+    items = [
+        (
+            sma_pool[i],
+            ecc_pool[i],
+            inc_pool[i],
+            raan_pool[i],
+            aop_pool[i],
+            ta_pool[i],
+            dt,
+            model_type,
+            use_finetuned,
         )
+        for i in range(num_samples)
+    ]
+    num_workers = min(os.cpu_count() or 4, 8)
+    processed_count = 0
+    progress_interval = max(1, num_samples // 10)
 
-        if not os.path.exists(model_path):
-            continue
-
-        # Load expert lazily
-        if model_path not in loaded_models:
-            ds = OrbitalDataset(dataset_path)
-            if current_model_type == "tree":
-                mdl = joblib.load(model_path)
-            else:
-                mdl = get_model_instance(current_model_type)
-                mdl.load_state_dict(torch.load(model_path, weights_only=True))
-            mdl.eval()
-            loaded_models[model_path] = mdl
-            loaded_datasets[model_path] = ds
-
-        model = loaded_models[model_path]
-        dataset = loaded_datasets[model_path]
-
-        # Fetch the True state and AI state
-        pos_true, v_true = get_ground_truth(sma, ecc, inc, raan, aop, ta, dt)
-        pos_est, _ = execute_ai_step(
-            sma, ecc, inc, raan, aop, ta, dt, model, dataset
-        )
-
-        # Compute exact discrepancies in the RIC frame
-        err_r, err_i, err_c = eci_to_ric_error(pos_true, v_true, pos_est)
-
-        r_errors.append(abs(err_r))
-        i_errors.append(abs(err_i))
-        c_errors.append(abs(err_c))
-
-        results_log.append([sma, ecc, inc, err_r, err_i, err_c])
-
-        # Progress indicator
-        progress_interval = max(1, num_samples // 10)
-        if (i + 1) % progress_interval == 0:
-            print(f" Processed {i + 1}/{num_samples} orbits...")
+    with ProcessPoolExecutor(max_workers=num_workers) as executor:
+        for res in executor.map(_worker_space_sample, items, chunksize=100):
+            processed_count += 1
+            if res is not None:
+                sma, ecc, inc, err_r, err_i, err_c = res
+                r_errors.append(abs(err_r))
+                i_errors.append(abs(err_i))
+                c_errors.append(abs(err_c))
+                results_log.append(res)
+            if processed_count % progress_interval == 0:
+                print(f" Processed {processed_count}/{num_samples} orbits...")
 
     # =========================================================================
     # 3. STATISTICS AND LOGGING
@@ -648,8 +626,56 @@ def generate_random_test_cases(num_cases, max_tof=4 * 3600):
     return random_cases
 
 
+def _worker_time_case(item):
+    case, model_type, use_finetuned = item
+    results, t_oracle, t_ai = run_time_domain_benchmark(
+        sma=case["sma"],
+        ecc=case["ecc"],
+        inc=case["inc"],
+        raan=case["raan"],
+        aop=case["aop"],
+        ta=case["ta"],
+        max_tof=case["max_tof"],
+        case_name=case["name"],
+        model_type=model_type,
+        model_cache=None,
+        verbose=False,
+        use_finetuned=use_finetuned,
+    )
+    return results, t_oracle, t_ai
+
+
+def _worker_space_sample(item):
+    sma, ecc, inc, raan, aop, ta, dt, model_type, use_finetuned = item
+    try:
+        expert_model_path, dataset_path = find_expert_system(
+            sma, ecc, inc, target_model_type=model_type, use_finetuned=use_finetuned
+        )
+    except ValueError:
+        return None
+
+    model_path = expert_model_path
+    current_model_type = model_type or infer_model_type_from_path(model_path)
+
+    if not os.path.exists(model_path):
+        return None
+
+    ds = OrbitalDataset(dataset_path)
+    if current_model_type == "tree":
+        mdl = joblib.load(model_path)
+    else:
+        mdl = get_model_instance(current_model_type)
+        mdl.load_state_dict(torch.load(model_path, weights_only=True))
+    mdl.eval()
+
+    pos_true, v_true = get_ground_truth(sma, ecc, inc, raan, aop, ta, dt)
+    pos_est, _ = execute_ai_step(sma, ecc, inc, raan, aop, ta, dt, mdl, ds)
+    err_r, err_i, err_c = eci_to_ric_error(pos_true, v_true, pos_est)
+    return [sma, ecc, inc, err_r, err_i, err_c]
+
+
 def run_time_domain_batch(
-    test_cases, output_filename=None, model_type=None, verbose=True
+    test_cases, output_filename=None, model_type=None, verbose=True, use_finetuned=True
 ):
     """
     Manage the execution of multiple time-domain benchmark cases.
@@ -676,7 +702,6 @@ def run_time_domain_batch(
     total_batch_ai_time = 0.0
     successful_cases = 0
 
-    model_cache = {}
     tmp_output = f"{output_filename}.tmp"
 
     # Stream into a temporary file and replace the canonical CSV only on success.
@@ -684,38 +709,24 @@ def run_time_domain_batch(
         writer = csv.writer(file)
 
         # Write the master header including the Case_ID for downstream sorting
-        writer.writerow(
-            ["Case_ID", "Time_s", "Radial_m", "InTrack_m", "CrossTrack_m"]
-        )
+        writer.writerow(["Case_ID", "Time_s", "Radial_m", "InTrack_m", "CrossTrack_m"])
 
-        # Process and stream results sequentially to maintain low memory usage
-        for case in test_cases:
-            results, t_oracle, t_ai = run_time_domain_benchmark(
-                sma=case["sma"],
-                ecc=case["ecc"],
-                inc=case["inc"],
-                raan=case["raan"],
-                aop=case["aop"],
-                ta=case["ta"],
-                max_tof=case["max_tof"],
-                case_name=case["name"],
-                model_type=model_type,
-                model_cache=model_cache,
-                verbose=verbose,
-            )
-
-            # Only write to the file if the orbit was safe and processed correctly
-            if results is not None:
-                writer.writerows(results)
-                successful_cases += 1
-                total_batch_oracle_time += t_oracle
-                total_batch_ai_time += t_ai
-
-            if not verbose and successful_cases % 100 == 0:
-                print(
-                    f" Processed {successful_cases}/{len(test_cases)} "
-                    "time-domain cases..."
-                )
+        items = [(c, model_type, use_finetuned) for c in test_cases]
+        num_workers = min(os.cpu_count() or 4, 8)
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            for results, t_oracle, t_ai in executor.map(
+                _worker_time_case, items, chunksize=10
+            ):
+                if results is not None:
+                    writer.writerows(results)
+                    successful_cases += 1
+                    total_batch_oracle_time += t_oracle
+                    total_batch_ai_time += t_ai
+                if not verbose and successful_cases % 1000 == 0:
+                    print(
+                        f" Processed {successful_cases}/{len(test_cases)} "
+                        "time-domain cases..."
+                    )
 
     os.replace(tmp_output, output_filename)
 
@@ -794,6 +805,11 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument(
+        "--use_base",
+        action="store_true",
+        help="Use base expert models without fine-tuning.",
+    )
+    parser.add_argument(
         "--no_tracking",
         action="store_true",
         help="Disable CodeCarbon tracking and metrics CSV logging.",
@@ -813,9 +829,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     np.random.seed(args.seed)
 
-    model_str = (
-        args.model_type.upper() if args.model_type else "BEST AVAILABLE"
-    )
+    model_str = args.model_type.upper() if args.model_type else "BEST AVAILABLE"
     print("=" * 80)
     print(f" ORBITA BENCHMARK SUITE | ARCHITECTURE: {model_str}")
     print("=" * 80)
@@ -846,9 +860,7 @@ if __name__ == "__main__":
     space_output = f"data/benchmark_space_domain_{model_name}{suffix}.csv"
 
     if choice in ["1", "3"]:
-        test_cases = generate_random_test_cases(
-            num_cases=n_cases, max_tof=max_tof
-        )
+        test_cases = generate_random_test_cases(num_cases=n_cases, max_tof=max_tof)
         tracker = None
         if not args.no_tracking:
             tracker = EmissionsTracker(
@@ -863,6 +875,7 @@ if __name__ == "__main__":
             output_filename=time_output,
             model_type=args.model_type,
             verbose=not args.quiet,
+            use_finetuned=not args.use_base,
         )
         wall = time.time() - t0
         if tracker is not None:
@@ -890,6 +903,7 @@ if __name__ == "__main__":
             dt=propagation_dt,
             model_type=args.model_type,
             output_filename=space_output,
+            use_finetuned=not args.use_base,
         )
         wall = time.time() - t0
         if tracker is not None:

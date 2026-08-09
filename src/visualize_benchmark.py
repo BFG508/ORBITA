@@ -60,7 +60,7 @@ def configure_style():
     mpl.rcParams["ytick.labelsize"] = 11
     mpl.rcParams["legend.fontsize"] = 11
     mpl.rcParams["figure.titlesize"] = 16
-    mpl.rcParams["figure.dpi"] = 300
+    mpl.rcParams["figure.dpi"] = 600
     mpl.rcParams["pdf.fonttype"] = 42
     mpl.rcParams["ps.fonttype"] = 42
 
@@ -75,11 +75,82 @@ def save_format(output_path, description, bbox_inches="tight"):
         description (str): Human-readable description of the saved figure.
         bbox_inches (str): Bounding box specification for Matplotlib.
     """
-    plt.savefig(output_path, dpi=300, bbox_inches=bbox_inches)
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    plt.savefig(output_path, dpi=600, bbox_inches=bbox_inches)
     vector_path = os.path.splitext(output_path)[0] + ".svg"
     plt.savefig(vector_path, bbox_inches=bbox_inches)
 
     print(f" [saved] {description}")
+
+
+def _is_excluded(fig_key, exclude_list=None):
+    """
+    Helper function to check if a figure key or name should be excluded.
+    """
+    if not exclude_list:
+        return False
+    key_lower = str(fig_key).lower()
+    for item in exclude_list:
+        item_lower = str(item).lower().strip()
+        if item_lower and item_lower in key_lower:
+            return True
+    return False
+
+
+def _arch_name_es(arch):
+    names = {
+        "resnet": "ResNet",
+        "mlp": "MLP",
+        "lstm": "LSTM",
+        "linear": "modelo lineal",
+        "tree": "árbol de decisión",
+    }
+    return names.get(str(arch).lower(), arch)
+
+
+def _arch_gen_phrase(arch):
+    arch = str(arch).lower()
+    if arch == "resnet":
+        return "Generalización MoE de ResNet"
+    elif arch == "linear":
+        return "Generalización del modelo lineal"
+    elif arch == "tree":
+        return "Generalización del árbol de decisión"
+    elif arch == "mlp":
+        return "Generalización de MLP"
+    elif arch == "lstm":
+        return "Generalización de LSTM"
+    return f"Generalización de {arch}"
+
+
+def _arch_env_phrase(arch):
+    arch = str(arch).lower()
+    if arch == "resnet":
+        return "Envolvente de error secular de ResNet"
+    elif arch == "linear":
+        return "Envolvente de error secular del modelo lineal"
+    elif arch == "tree":
+        return "Envolvente de error secular del árbol de decisión"
+    elif arch == "mlp":
+        return "Envolvente de error secular de MLP"
+    elif arch == "lstm":
+        return "Envolvente de error secular de LSTM"
+    return f"Envolvente de error secular de {arch}"
+
+
+def _arch_cdf_phrase(arch):
+    arch = str(arch).lower()
+    if arch == "resnet":
+        return "Función de distribución acumulada de ResNet de error espacial"
+    elif arch == "linear":
+        return "Función de distribución acumulada del modelo lineal de error espacial"
+    elif arch == "tree":
+        return "Función de distribución acumulada del árbol de decisión de error espacial"
+    elif arch == "mlp":
+        return "Función de distribución acumulada de MLP de error espacial"
+    elif arch == "lstm":
+        return "Función de distribución acumulada de LSTM de error espacial"
+    return f"Función de distribución acumulada de {arch} de error espacial"
 
 
 # =============================================================================
@@ -87,7 +158,7 @@ def save_format(output_path, description, bbox_inches="tight"):
 # =============================================================================
 
 
-def plot_time_domain(csv_path):
+def plot_time_domain(csv_path, output_dir="figures/benchmarks", exclude=None):
     """
     Generate a high-performance hybrid time-domain benchmark figure
     from a unified batch CSV file for a single model.
@@ -96,24 +167,24 @@ def plot_time_domain(csv_path):
         print(f" [error] Time-domain data not found at: {csv_path}")
         return
 
+    model_name = os.path.basename(csv_path).replace(".csv", "")
+    if _is_excluded("envelope", exclude) or _is_excluded(f"{model_name}_envelope", exclude):
+        print(f" [skipped] Time-Domain Analytics ({model_name})")
+        return
+
     df = pd.read_csv(csv_path)
     df["Time_hours"] = df["Time_s"] / 3600.0
     df["Abs_Radial_m"] = np.abs(df["Radial_m"])
     df["Abs_InTrack_m"] = np.abs(df["InTrack_m"])
     df["Abs_CrossTrack_m"] = np.abs(df["CrossTrack_m"])
 
-    rad_pivot = df.pivot(
-        index="Time_hours", columns="Case_ID", values="Abs_Radial_m"
-    )
-    int_pivot = df.pivot(
-        index="Time_hours", columns="Case_ID", values="Abs_InTrack_m"
-    )
+    rad_pivot = df.pivot(index="Time_hours", columns="Case_ID", values="Abs_Radial_m")
+    int_pivot = df.pivot(index="Time_hours", columns="Case_ID", values="Abs_InTrack_m")
     crs_pivot = df.pivot(
         index="Time_hours", columns="Case_ID", values="Abs_CrossTrack_m"
     )
 
     common_time = rad_pivot.index.values
-    num_cases = rad_pivot.shape[1]
 
     rad_mean, rad_p05, rad_p95 = (
         rad_pivot.mean(axis=1),
@@ -131,33 +202,9 @@ def plot_time_domain(csv_path):
         crs_pivot.quantile(0.95, axis=1),
     )
 
-    fig, axes = plt.subplots(3, 1, figsize=(11, 10), sharex=True)
+    fig, axes = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
 
-    axes[0].plot(
-        common_time,
-        rad_pivot.values,
-        color=COLOR_R,
-        alpha=0.3,
-        linewidth=0.5,
-        zorder=1,
-    )
-    axes[1].plot(
-        common_time,
-        int_pivot.values,
-        color=COLOR_I,
-        alpha=0.3,
-        linewidth=0.5,
-        zorder=1,
-    )
-    axes[2].plot(
-        common_time,
-        crs_pivot.values,
-        color=COLOR_C,
-        alpha=0.3,
-        linewidth=0.5,
-        zorder=1,
-    )
-
+    # 1. Radial Error Plot
     axes[0].fill_between(
         common_time,
         rad_p05,
@@ -177,14 +224,15 @@ def plot_time_domain(csv_path):
         label="Error medio",
     )
     axes[0].set_ylabel("Error radial [m]")
-    axes[0].set_ylim(bottom=0)
+    arch_name = _extract_architecture(model_name)
     axes[0].set_title(
-        f"ORBITA: Envolvente de error secular ({num_cases} casos)",
-        pad=15,
+        _arch_env_phrase(arch_name),
+        fontsize=14,
         fontweight="bold",
     )
     axes[0].legend(loc="upper left", frameon=True)
 
+    # 2. In-Track Error Plot
     axes[1].fill_between(
         common_time,
         int_p05,
@@ -193,11 +241,20 @@ def plot_time_domain(csv_path):
         alpha=0.3,
         linewidth=0,
         zorder=2,
+        label="Percentil 5-95",
     )
-    axes[1].plot(common_time, int_mean, color=COLOR_I, linewidth=2.5, zorder=3)
+    axes[1].plot(
+        common_time,
+        int_mean,
+        color=COLOR_I,
+        linewidth=2.5,
+        zorder=3,
+        label="Error medio",
+    )
     axes[1].set_ylabel("Error tangencial [m]")
-    axes[1].set_ylim(bottom=0)
+    axes[1].legend(loc="upper left", frameon=True)
 
+    # 3. Cross-Track Error Plot
     axes[2].fill_between(
         common_time,
         crs_p05,
@@ -206,38 +263,38 @@ def plot_time_domain(csv_path):
         alpha=0.3,
         linewidth=0,
         zorder=2,
+        label="Percentil 5-95",
     )
-    axes[2].plot(common_time, crs_mean, color=COLOR_C, linewidth=2.5, zorder=3)
+    axes[2].plot(
+        common_time,
+        crs_mean,
+        color=COLOR_C,
+        linewidth=2.5,
+        zorder=3,
+        label="Error medio",
+    )
     axes[2].set_ylabel("Error normal [m]")
-    axes[2].set_xlabel("Tiempo de vuelo [h]", fontsize=12, fontweight="bold")
-    axes[2].set_xlim(left=15.0 / 60, right=common_time.max())
-    axes[2].set_ylim(bottom=0)
+    axes[2].set_xlabel("Tiempo de vuelo [h]", fontsize=12)
+    axes[2].legend(loc="upper left", frameon=True)
 
     for ax in axes:
+        ax.set_xlim(left=common_time.min(), right=common_time.max())
+        ax.set_ylim(bottom=0)
         ax.grid(True, linestyle="-", alpha=0.6, zorder=0)
 
     plt.tight_layout()
     model_name = os.path.basename(csv_path).replace(".csv", "")
     save_format(
-        f"figures/{model_name}_envelope.png",
+        os.path.join(output_dir, f"{model_name}_envelope.png"),
         f"Time-Domain Analytics ({model_name})",
     )
     plt.close()
 
 
-def plot_space_domain_distributions(df, output_prefix):
+def plot_space_domain_distributions(df, output_prefix, arch="resnet"):
     """
-    Generates statistical distribution panels (histograms) using the absolute
-    magnitude of the RIC errors. Consolidates the statistical markers (mean
-    and 95th percentile) into a single global legend to maximize data-ink ratio.
-
-    Args:
-        df (pd.DataFrame): The space-domain dataset containing the precomputed
-            absolute RIC error columns ('Abs_Radial_m', 'Abs_InTrack_m',
-            'Abs_CrossTrack_m').
-        output_prefix (str): The base directory path and filename prefix used
-            for the exported figures. The specific suffix '_histograms.png'
-            (and '.svg') will be appended automatically.
+    Generates a 1-row by 3-column histogram plot showing the empirical density
+    distributions of absolute RIC residuals.
     """
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
     components = [
@@ -247,16 +304,12 @@ def plot_space_domain_distributions(df, output_prefix):
     ]
 
     for i, (ax, (col, title, color)) in enumerate(zip(axes, components)):
-        sns.histplot(
-            df[col], kde=True, ax=ax, color=color, stat="density", alpha=0.5
-        )
+        sns.histplot(df[col], kde=True, ax=ax, color=color, stat="density", alpha=0.5)
 
         mean_val = df[col].mean()
         p95_val = np.percentile(df[col], 95)
 
-        ax.axvline(
-            mean_val, color="black", linestyle="-", linewidth=1.5, label="Media"
-        )
+        ax.axvline(mean_val, color="black", linestyle="-", linewidth=1.5, label="Media")
         ax.axvline(
             p95_val,
             color="gray",
@@ -287,7 +340,7 @@ def plot_space_domain_distributions(df, output_prefix):
     )
 
     plt.suptitle(
-        "Generalización MoE: Distribuciones de error RIC absoluto",
+        f"{_arch_gen_phrase(arch)}: distribución de error RIC absoluto",
         x=0.516,
         y=1.05,
         fontweight="bold",
@@ -299,21 +352,11 @@ def plot_space_domain_distributions(df, output_prefix):
     plt.close()
 
 
-def plot_space_domain_scatter_trends(df, output_prefix, max_samples=5000):
+def plot_space_domain_scatter_trends(df, output_prefix, max_samples=5000, arch="resnet"):
     """
     Generates scatter plots correlating the absolute radial error with orbital parameters.
     Uses random subsampling and rasterized scatters to drastically reduce
     LOWESS calculation time and SVG export bloat.
-
-    Args:
-        df (pd.DataFrame): The space-domain dataset containing orbital parameters
-            ('SMA_km', 'ECC', 'INC_rad') and absolute errors ('Abs_Radial_m').
-        output_prefix (str): The base directory path and filename prefix used
-            for the exported figures. The specific suffix '_scatter.png'
-            (and '.svg') will be appended automatically.
-        max_samples (int, optional): Maximum number of data points to plot and
-            use for the LOWESS trendline calculation. This prevents O(N^2)
-            algorithmic bottlenecks and massive vector file sizes. Defaults to 5000.
     """
     if len(df) > max_samples:
         df_plot = df.sample(n=max_samples, random_state=42)
@@ -382,16 +425,14 @@ def plot_space_domain_scatter_trends(df, output_prefix, max_samples=5000):
             ax.set_ylabel("")
 
     plt.suptitle(
-        "Generalización MoE: Análisis de condiciones de contorno radiales",
+        f"{_arch_gen_phrase(arch)}: análisis de condiciones de contorno radiales",
         x=0.514,
         fontweight="bold",
     )
     plt.tight_layout()
 
     scatter_output = f"{output_prefix}_scatter.png"
-    save_format(
-        scatter_output, "Radial Boundary Condition Analysis (Scatter/LOWESS)"
-    )
+    save_format(scatter_output, "Radial Boundary Condition Analysis (Scatter/LOWESS)")
     plt.close()
 
 
@@ -400,22 +441,11 @@ def plot_domain_heatmap(
     output_filename="figures/plot_space_domain_heatmap.png",
     error_column="Abs_InTrack_m",
     component_label="In-Track",
+    arch="resnet",
 ):
     """
     Generates a clean Hexbin Heatmap using the ESTHER 'plasma' colormap
     to map the topological error distribution across the LEO parameter space.
-
-    Args:
-        df (pd.DataFrame): The space-domain dataset containing orbital parameters
-            ('SMA_km', 'ECC') for the 2D grid, and the absolute RIC error
-            column used to compute the mean error color density.
-        output_filename (str, optional): The exact file path where the generated
-            heatmap figure (.png and .svg) will be exported. Defaults to
-            "figures/plot_space_domain_heatmap.png".
-        error_column (str, optional): Absolute RIC error column to aggregate.
-            Defaults to "Abs_InTrack_m".
-        component_label (str, optional): Human-readable RIC component label.
-            Defaults to "In-Track".
     """
     _, ax = plt.subplots(figsize=(10, 8))
 
@@ -447,8 +477,9 @@ def plot_domain_heatmap(
 
     ax.set_xlabel("Altitud [km]", fontsize=12)
     ax.set_ylabel("Excentricidad [-]", fontsize=12)
+    title_text = f"Mapa de densidad topológica de error absoluto: {_arch_gen_phrase(arch)}"
     ax.set_title(
-        "Mapa de densidad topológica de error absoluto MoE", pad=15, fontweight="bold"
+        title_text, pad=15, fontweight="bold"
     )
     ax.grid(True, linestyle="-", alpha=0.6)
 
@@ -457,21 +488,68 @@ def plot_domain_heatmap(
     plt.close()
 
 
-def plot_regime_violin(
-    df, output_filename="figures/plot_space_domain_violin.png"
+def plot_combined_domain_heatmaps(
+    df, output_filename="figures/plot_space_domain_heatmap_combined.png", arch="resnet"
 ):
+    """
+    Generates a 1-row by 3-column combined figure showing the hexbin heatmaps
+    for Radial, In-Track, and Cross-Track error distributions across the LEO
+    parameter space.
+    """
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5.5), sharey=True)
+
+    components = [
+        ("Abs_Radial_m", "radial"),
+        ("Abs_InTrack_m", "tangencial"),
+        ("Abs_CrossTrack_m", "normal"),
+    ]
+
+    for idx, (err_col, label_es) in enumerate(components):
+        ax = axes[idx]
+        hb = ax.hexbin(
+            df["SMA_km"] - R_EQ / 1e3,
+            df["ECC"],
+            C=df[err_col],
+            reduce_C_function=np.mean,
+            gridsize=30,
+            cmap="plasma",
+            edgecolors="white",
+            linewidths=0.2,
+            rasterized=True,
+        )
+
+        cbar = fig.colorbar(hb, ax=ax)
+        cbar.set_label(
+            f"Error absoluto medio {label_es} [m]",
+            labelpad=10,
+            fontsize=10.5,
+            fontweight="bold",
+        )
+
+        ax.set_xlabel("Altitud [km]", fontsize=11)
+        if idx == 0:
+            ax.set_ylabel("Excentricidad [-]", fontsize=11)
+
+        ax.set_title(f"Componente {label_es}", pad=12, fontweight="bold")
+        ax.grid(True, linestyle="-", alpha=0.6)
+
+    plt.suptitle(
+        f"Mapa de densidad topológica de error absoluto: {_arch_gen_phrase(arch)}",
+        fontsize=14,
+        fontweight="bold",
+        y=1.02,
+    )
+
+    plt.tight_layout()
+    save_format(output_filename, "Topological Error Density Map (Combined Heatmaps)")
+    plt.close()
+
+
+def plot_regime_violin(df, output_filename="figures/plot_space_domain_violin.png", arch="resnet"):
     """
     Categorizes the dataset into specific LEO regimes (Low, Medium, High)
     based on altitude and plots a Violin distribution using a custom
     gradient extracted from the 'plasma' colormap.
-
-    Args:
-        df (pd.DataFrame): The space-domain dataset containing the semi-major
-            axis ('SMA_km') used to calculate altitude, and the absolute
-            radial error ('Abs_Radial_m') for the probability density.
-        output_filename (str, optional): The target file path where the
-            generated violin plot (.png and .svg) will be exported.
-            Defaults to "figures/plot_space_domain_violin.png".
     """
     df["Altitude_km"] = df["SMA_km"] - R_EQ / 1e3
     bins = [0, 600, 1200, 2000]
@@ -502,11 +580,11 @@ def plot_regime_violin(
     )
 
     plt.title(
-        "Distribución del error radial absoluto por régimen LEO",
+        f"Distribución del error radial absoluto por régimen LEO ({_arch_name_es(arch)})",
         pad=15,
         fontweight="bold",
     )
-    plt.xlabel("Régimen orbital", labelpad=10, fontweight="bold")
+    plt.xlabel("Régimen orbital", labelpad=10)
     plt.ylabel("Error radial absoluto [m]")
     plt.grid(True, linestyle="-", alpha=0.6)
 
@@ -518,7 +596,7 @@ def plot_regime_violin(
     plt.close()
 
 
-def plot_space_domain(csv_path):
+def plot_space_domain(csv_path, output_dir="figures/benchmarks", exclude=None):
     """
     Orchestrates all space-domain plotting functions for a single model.
     """
@@ -533,54 +611,84 @@ def plot_space_domain(csv_path):
     df["Abs_CrossTrack_m"] = np.abs(df["CrossTrack_m"])
 
     model_name = os.path.basename(csv_path).replace(".csv", "")
-    prefix = f"figures/{model_name}"
+    arch = _extract_architecture(model_name)
+    prefix = os.path.join(output_dir, model_name)
 
     # 1. Plot CDF
-    plt.figure(figsize=(9, 6))
-    sns.ecdfplot(
-        df["Abs_Radial_m"], label="Error radial", color=COLOR_R, linewidth=2
-    )
-    sns.ecdfplot(
-        df["Abs_InTrack_m"], label="Error tangencial", color=COLOR_I, linewidth=2
-    )
-    sns.ecdfplot(
-        df["Abs_CrossTrack_m"],
-        label="Error normal",
-        color=COLOR_C,
-        linewidth=2,
-    )
+    if not _is_excluded("cdf", exclude) and not _is_excluded(f"{model_name}_cdf", exclude):
+        plt.figure(figsize=(9, 6))
+        sns.ecdfplot(df["Abs_Radial_m"], label="Error radial", color=COLOR_R, linewidth=2)
+        sns.ecdfplot(
+            df["Abs_InTrack_m"], label="Error tangencial", color=COLOR_I, linewidth=2
+        )
+        sns.ecdfplot(
+            df["Abs_CrossTrack_m"],
+            label="Error normal",
+            color=COLOR_C,
+            linewidth=2,
+        )
 
-    plt.axhline(0.95, color="gray", linestyle="--", linewidth=1)
-    plt.title(
-        f"Función de distribución acumulada ({model_name})",
-        pad=15,
-        fontweight="bold",
-    )
-    plt.xlabel("Error absoluto [m]")
-    plt.ylabel("Probabilidad acumulada")
-    plt.xlim(left=0)
-    plt.grid(True, linestyle="-", alpha=0.6)
-    plt.legend(loc="lower right")
-    plt.tight_layout()
-    save_format(f"{prefix}_cdf.png", f"CDF Plot ({model_name})")
-    plt.close()
+        plt.axhline(0.95, color="gray", linestyle="--", linewidth=1)
+        plt.text(
+            0.02,
+            0.96,
+            "Límite de confianza del 95 %",
+            transform=plt.gca().transAxes,
+            fontsize=10,
+            color="gray",
+        )
+        plt.title(
+            _arch_cdf_phrase(arch),
+            pad=15,
+            fontweight="bold",
+        )
+        plt.xlabel("Error absoluto [m]")
+        plt.ylabel("Probabilidad acumulada")
+        plt.xscale("log")
+        plt.xlim(left=1e-4)
+        plt.ylim(0, 1.0)
+        plt.grid(True, linestyle="-", alpha=0.6, which="both")
+        plt.legend(loc="lower right")
+        plt.tight_layout()
+        save_format(f"{prefix}_cdf.png", f"CDF Plot ({model_name})")
+        plt.close()
 
-    plot_space_domain_distributions(df, prefix)
-    plot_space_domain_scatter_trends(df, prefix)
-    plot_domain_heatmap(df, f"{prefix}_heatmap.png")
-    plot_domain_heatmap(
-        df,
-        f"{prefix}_heatmap_radial.png",
-        error_column="Abs_Radial_m",
-        component_label="Radial",
+    skip_hist = (
+        _is_excluded("histograms", exclude)
+        or _is_excluded(f"{model_name}_histograms", exclude)
     )
-    plot_domain_heatmap(
-        df,
-        f"{prefix}_heatmap_cross_track.png",
-        error_column="Abs_CrossTrack_m",
-        component_label="Cross-Track",
+    if not skip_hist:
+        plot_space_domain_distributions(df, prefix, arch=arch)
+
+    skip_scat = (
+        _is_excluded("scatter", exclude)
+        or _is_excluded(f"{model_name}_scatter", exclude)
     )
-    plot_regime_violin(df, f"{prefix}_violin.png")
+    if not skip_scat:
+        plot_space_domain_scatter_trends(df, prefix, arch=arch)
+
+    skip_hm = _is_excluded("heatmap", exclude) or _is_excluded(f"{model_name}_heatmap", exclude)
+    if not skip_hm:
+        plot_domain_heatmap(df, f"{prefix}_heatmap.png", arch=arch)
+        plot_domain_heatmap(
+            df,
+            f"{prefix}_heatmap_radial.png",
+            error_column="Abs_Radial_m",
+            component_label="Radial",
+            arch=arch,
+        )
+        plot_domain_heatmap(
+            df,
+            f"{prefix}_heatmap_cross_track.png",
+            error_column="Abs_CrossTrack_m",
+            component_label="Cross-Track",
+            arch=arch,
+        )
+        plot_combined_domain_heatmaps(df, f"{prefix}_heatmap_combined.png", arch=arch)
+
+    skip_vio = _is_excluded("violin", exclude) or _is_excluded(f"{model_name}_violin", exclude)
+    if not skip_vio:
+        plot_regime_violin(df, f"{prefix}_violin.png", arch=arch)
 
 
 # =============================================================================
@@ -588,85 +696,135 @@ def plot_space_domain(csv_path):
 # =============================================================================
 
 
-def plot_ablation_time_domain(data_dir="data", output_dir="figures"):
+def plot_ablation_time_domain(
+    data_dir="data",
+    output_dir="figures/ablation_global",
+    exclude=None,
+    architectures=None,
+    use_finetuned=False,
+):
     """
-    Generates a comparative time-domain figure overlapping the mean error
-    accumulation of all available architectural baselines.
+    Generates a comparative 3-subplot figure showing mean absolute Secular Error
+    accumulation over time for all available architectural baselines.
     """
-    models = ["resnet", "mlp", "lstm", "linear", "tree"]
+    skip_abl_time = (
+        _is_excluded("ablation_time_domain_comparison", exclude)
+        or _is_excluded("ablation_time", exclude)
+    )
+    if skip_abl_time:
+        print(" [skipped] Ablation Time-Domain Comparison")
+        return
+
+    all_models = ["linear", "tree", "mlp", "lstm", "resnet"]
+    models = architectures if architectures else all_models
 
     # Mapping dictionary to enforce specific legend names
-    legend_labels = {
+    legend_map = {
         "resnet": "ResNet",
         "mlp": "MLP",
         "lstm": "LSTM",
-        "linear": "Lineal",
+        "linear": "Modelo lineal",
         "tree": "Árbol de decisión",
     }
 
-    available_data = {}
+    data = {}
+    common_time = None
 
     for m in models:
-        path = os.path.join(data_dir, f"benchmark_time_domain_{m}.csv")
-        if os.path.exists(path):
-            df = pd.read_csv(path)
+        csv_path = _find_benchmark_csv(
+            "time_domain", m, data_dir=data_dir, use_finetuned=use_finetuned
+        )
+        if csv_path and os.path.exists(csv_path):
+            df = pd.read_csv(csv_path)
             df["Time_hours"] = df["Time_s"] / 3600.0
+            df["Abs_Radial_m"] = np.abs(df["Radial_m"])
+            df["Abs_InTrack_m"] = np.abs(df["InTrack_m"])
+            df["Abs_CrossTrack_m"] = np.abs(df["CrossTrack_m"])
 
-            # Compute means per time step
-            columns_to_mean = ["Radial_m", "InTrack_m", "CrossTrack_m"]
-            means = df.groupby("Time_hours")[columns_to_mean].apply(
-                lambda x: np.abs(x).mean()
+            rad_pivot = df.pivot(
+                index="Time_hours", columns="Case_ID", values="Abs_Radial_m"
             )
-            available_data[m] = means
+            int_pivot = df.pivot(
+                index="Time_hours", columns="Case_ID", values="Abs_InTrack_m"
+            )
+            crs_pivot = df.pivot(
+                index="Time_hours", columns="Case_ID", values="Abs_CrossTrack_m"
+            )
 
-    if not available_data:
+            if common_time is None:
+                common_time = rad_pivot.index.values
+
+            data[m] = {
+                "rad": rad_pivot.mean(axis=1).values,
+                "int": int_pivot.mean(axis=1).values,
+                "crs": crs_pivot.mean(axis=1).values,
+            }
+
+    if not data:
         print(" [error] No ablation time-domain data found.")
         return
 
     fig, axes = plt.subplots(3, 1, figsize=(11, 10), sharex=True)
 
-    for m, means in available_data.items():
+    for m in models:
+        if m not in data:
+            continue
         color = PALETTE_ABLATION[m]
-        # Retrieve the exact name from the dictionary
-        label = legend_labels.get(m, m.upper())
+        label = legend_map.get(m, m.upper())
 
         axes[0].plot(
-            means.index,
-            means["Radial_m"],
-            color=color,
-            linewidth=2.5,
+            common_time,
+            data[m]["rad"],
             label=label,
+            color=color,
+            linewidth=2.0,
         )
         axes[1].plot(
-            means.index, means["InTrack_m"], color=color, linewidth=2.5
+            common_time,
+            data[m]["int"],
+            label=label,
+            color=color,
+            linewidth=2.0,
         )
         axes[2].plot(
-            means.index, means["CrossTrack_m"], color=color, linewidth=2.5
+            common_time,
+            data[m]["crs"],
+            label=label,
+            color=color,
+            linewidth=2.0,
         )
 
     axes[0].set_ylabel("Error radial medio [m]")
+    axes[0].set_yscale("log")
+
     axes[0].set_title(
-        "Estudio de ablación: Acumulación de error secular en el tiempo",
-        pad=15,
+        "Estudio de ablación: acumulación de error secular temporal",
+        pad=35,
         fontweight="bold",
     )
-    axes[0].legend(loc="upper left", frameon=True)
 
-    axes[1].set_ylabel("Error tangencial medio [m]")
-    axes[2].set_ylabel("Error normal medio [m]")
-    axes[2].set_xlabel("Tiempo de vuelo [h]", fontsize=12)
-    axes[2].set_xlim(
-        left=min(means.index.min() for means in available_data.values()),
-        right=max(means.index.max() for means in available_data.values()),
+    handles, labels = axes[0].get_legend_handles_labels()
+    axes[0].legend(
+        handles,
+        labels,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 1.02),
+        ncol=len(models),
+        fontsize=9,
+        frameon=True,
     )
 
-    # Use logarithmic scale on Y if Linear is present to avoid flatlining
-    if "linear" in available_data:
-        for ax in axes:
-            ax.set_yscale("log")
+    axes[1].set_ylabel("Error tangencial medio [m]")
+    axes[1].set_yscale("log")
+
+    axes[2].set_ylabel("Error normal medio [m]")
+    axes[2].set_xlabel("Tiempo de vuelo [h]", fontsize=12)
+    axes[2].set_yscale("log")
 
     for ax in axes:
-        ax.grid(True, linestyle="-", alpha=0.6, which="both")
+        if common_time is not None and len(common_time) > 0:
+            ax.set_xlim(common_time[0], common_time[-1])
+        ax.grid(True, which="both", linestyle="-", alpha=0.3)
 
     plt.tight_layout()
     save_format(
@@ -676,68 +834,94 @@ def plot_ablation_time_domain(data_dir="data", output_dir="figures"):
     plt.close()
 
 
-def plot_ablation_space_domain(data_dir="data", output_dir="figures"):
+def plot_ablation_space_domain(
+    data_dir="data",
+    output_dir="figures/ablation_global",
+    exclude=None,
+    architectures=None,
+    use_finetuned=False,
+):
     """
     Generates a comparative Cumulative Distribution Function (CDF) plot
     for the In-Track error across all available architectural baselines.
     """
-    models = ["resnet", "mlp", "lstm", "linear", "tree"]
+    skip_abl_space = (
+        _is_excluded("ablation_space_domain_cdf", exclude)
+        or _is_excluded("ablation_space", exclude)
+    )
+    if skip_abl_space:
+        print(" [skipped] Ablation Space-Domain CDF Comparison")
+        return
+
+    all_models = ["resnet", "mlp", "lstm", "linear", "tree"]
+    models = architectures if architectures else all_models
 
     # Mapping dictionary to enforce specific legend names
-    legend_labels = {
+    legend_map = {
         "resnet": "ResNet",
         "mlp": "MLP",
         "lstm": "LSTM",
-        "linear": "Lineal",
+        "linear": "Modelo lineal",
         "tree": "Árbol de decisión",
     }
 
-    available_data = {}
+    plt.figure(figsize=(10, 6))
+    plotted_any = False
 
     for m in models:
-        path = os.path.join(data_dir, f"benchmark_space_domain_{m}.csv")
-        if os.path.exists(path):
-            df = pd.read_csv(path)
-            available_data[m] = np.abs(df["InTrack_m"])
+        csv_path = _find_benchmark_csv(
+            "space_domain", m, data_dir=data_dir, use_finetuned=use_finetuned
+        )
+        if csv_path and os.path.exists(csv_path):
+            df = pd.read_csv(csv_path)
+            df["Abs_InTrack_m"] = np.abs(df["InTrack_m"])
+            color = PALETTE_ABLATION[m]
+            label = legend_map.get(m, m.upper())
 
-    if not available_data:
+            sns.ecdfplot(
+                df["Abs_InTrack_m"],
+                label=label,
+                color=color,
+                linewidth=2.5,
+            )
+            plotted_any = True
+
+    if not plotted_any:
         print(" [error] No ablation space-domain data found.")
+        plt.close()
         return
 
-    plt.figure(figsize=(9, 6))
-
-    for m, data in available_data.items():
-        color = PALETTE_ABLATION[m]
-        # Retrieve the exact name from the dictionary, defaulting to uppercase
-        # if not found
-        label = legend_labels.get(m, m.upper())
-        sns.ecdfplot(data, label=label, color=color, linewidth=2)
-
-    plt.axhline(0.95, color="gray", linestyle="--", linewidth=1)
+    plt.axhline(0.95, color="gray", linestyle="--", linewidth=1.5)
     plt.text(
         0.02,
         0.96,
-        "Límite de confianza del 95%",
+        "Límite de confianza del 95 %",
         transform=plt.gca().transAxes,
         fontsize=10,
         color="gray",
     )
 
+    plt.xlabel("Error tangencial absoluto [m]", fontsize=12)
+    plt.ylabel("Probabilidad acumulada", fontsize=12)
     plt.title(
-        "Estudio de ablación: Rendimiento de generalización (CDF error tangencial)",
-        pad=15,
+        "Estudio de ablación: CDF de error tangencial espacial",
+        pad=35,
         fontweight="bold",
     )
-    plt.xlabel("Error tangencial absoluto [m]")
-    plt.ylabel("Probabilidad acumulada")
-
-    if "linear" in available_data:
-        plt.xscale("log")
-    else:
-        plt.xlim(left=0)
-
-    plt.grid(True, linestyle="-", alpha=0.6, which="both")
-    plt.legend(loc="lower right")
+    handles, labels = plt.gca().get_legend_handles_labels()
+    plt.legend(
+        handles,
+        labels,
+        loc="lower center",
+        bbox_to_anchor=(0.5, 1.02),
+        ncol=len(models),
+        fontsize=9,
+        frameon=True,
+    )
+    plt.xscale("log")
+    plt.grid(True, which="both", linestyle="-", alpha=0.6)
+    plt.xlim(left=1e-5)
+    plt.ylim(0, 1.0)
 
     plt.tight_layout()
     save_format(
@@ -747,11 +931,7 @@ def plot_ablation_space_domain(data_dir="data", output_dir="figures"):
     plt.close()
 
 
-# =============================================================================
-# METRICS VISUALIZATION (COMPARATIVE MODE)
-# =============================================================================
-
-ARCH_ORDER = ["resnet", "mlp", "lstm", "linear", "tree"]
+ARCH_ORDER = ["resnet", "lstm", "mlp", "tree", "linear"]
 LEGEND_MAP = {
     "resnet": "ResNet",
     "mlp": "MLP",
@@ -763,13 +943,46 @@ LEGEND_MAP = {
 
 def _load_metrics_csv(path):
     """
-    Loads a metrics CSV file into a pandas DataFrame.
-    Returns None if the file does not exist.
+    Loads a metrics CSV file into a pandas DataFrame checking data/metrics/ first.
     """
-    if not os.path.exists(path):
-        print(f" [warn] Metrics file not found: {path}")
-        return None
-    return pd.read_csv(path)
+    filename = os.path.basename(path)
+    candidates = [
+        os.path.join("data", "metrics", filename),
+        os.path.join("data", filename),
+        path,
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            return pd.read_csv(p)
+    print(f" [warn] Metrics file not found: {path}")
+    return None
+
+
+def _find_benchmark_csv(mode, arch, data_dir="data", use_finetuned=True):
+    """
+    Resolves benchmark CSV paths across ablation_global and ablation_resnet folders.
+    """
+    if use_finetuned:
+        filenames = [
+            f"benchmark_{mode}_{arch}_finetuned.csv",
+            f"benchmark_{mode}_{arch}.csv",
+        ]
+    else:
+        filenames = [
+            f"benchmark_{mode}_{arch}_base.csv",
+            f"benchmark_{mode}_{arch}.csv",
+        ]
+    for filename in filenames:
+        candidates = [
+            os.path.join(data_dir, "benchmarks", "ablation_global", filename),
+            os.path.join(data_dir, "benchmarks", "ablation_resnet", filename),
+            os.path.join(data_dir, "benchmarks", "ablation", filename),
+            os.path.join(data_dir, filename),
+        ]
+        for p in candidates:
+            if os.path.exists(p):
+                return p
+    return None
 
 
 def _extract_architecture(project_name):
@@ -802,7 +1015,7 @@ def _infer_emission_phase(project_name):
     return "unknown"
 
 
-def plot_training_time(data_dir="data", output_dir="figures"):
+def plot_training_time(data_dir="data", output_dir="figures/metrics"):
     """
     Generates a horizontal barplot comparing the wall-clock
     training time across all available architectures.
@@ -820,25 +1033,26 @@ def plot_training_time(data_dir="data", output_dir="figures"):
     df = df.sort_values("architecture")
 
     fig, ax = plt.subplots(figsize=(9, 5))
-    colors = [
-        PALETTE_ABLATION.get(a, (0.5, 0.5, 0.5)) for a in df["architecture"]
-    ]
+    colors = [PALETTE_ABLATION.get(a, (0.5, 0.5, 0.5)) for a in df["architecture"]]
     labels = [LEGEND_MAP.get(a, a) for a in df["architecture"]]
 
     bars = ax.barh(labels, df["training_time_s"], color=colors)
 
+    max_val = df["training_time_s"].max()
+    ax.set_xlim(right=max_val * 1.12 if max_val > 0 else 1.0)
+
     for bar, val in zip(bars, df["training_time_s"]):
         ax.text(
-            bar.get_width() + 0.5,
+            bar.get_width() + (max_val * 0.015 if max_val > 0 else 0.5),
             bar.get_y() + bar.get_height() / 2,
-            f"{val:.1f}s",
+            f"{val:.2f}",
             va="center",
             fontsize=10,
         )
 
     ax.set_xlabel("Tiempo de entrenamiento [s]")
     ax.set_title(
-        "Comparativa de arquitecturas: Tiempo de entrenamiento",
+        "Comparativa de arquitecturas: tiempo de entrenamiento",
         pad=15,
         fontweight="bold",
     )
@@ -853,7 +1067,7 @@ def plot_training_time(data_dir="data", output_dir="figures"):
     plt.close()
 
 
-def plot_model_size(output_dir="figures"):
+def plot_model_size(output_dir="figures/metrics"):
     """
     Scans the models/ directory and generates a barplot
     comparing the file size (MB) of each architecture's
@@ -864,8 +1078,8 @@ def plot_model_size(output_dir="figures"):
     size_data = {}
     for arch in ARCH_ORDER:
         ext = ".joblib" if arch == "tree" else ".pth"
-        pattern = f"models/orbita_predictor_{arch}_*{ext}"
-        files = glob.glob(pattern)
+        pattern = f"models/**/orbita_predictor_{arch}_*{ext}"
+        files = glob.glob(pattern, recursive=True)
         files = [f for f in files if "_finetuned" not in f]
         if files:
             total = sum(os.path.getsize(f) for f in files)
@@ -884,18 +1098,21 @@ def plot_model_size(output_dir="figures"):
     fig, ax = plt.subplots(figsize=(9, 5))
     bars = ax.barh(labels, sizes, color=colors)
 
+    max_val = max(sizes)
+    ax.set_xlim(right=max_val * 1.12 if max_val > 0 else 1.0)
+
     for bar, val in zip(bars, sizes):
         ax.text(
-            bar.get_width() + 0.01,
+            bar.get_width() + (max_val * 0.015 if max_val > 0 else 0.05),
             bar.get_y() + bar.get_height() / 2,
-            f"{val:.3f} MB",
+            f"{val:.2f}",
             va="center",
             fontsize=10,
         )
 
     ax.set_xlabel("Tamaño medio del modelo [MB]")
     ax.set_title(
-        "Comparativa de arquitecturas: Tamaño del modelo",
+        "Comparativa de arquitecturas: tamaño del modelo",
         pad=15,
         fontweight="bold",
     )
@@ -910,7 +1127,7 @@ def plot_model_size(output_dir="figures"):
     plt.close()
 
 
-def plot_benchmark_time(data_dir="data", output_dir="figures"):
+def plot_benchmark_time(data_dir="data", output_dir="figures/metrics"):
     """
     Generates a grouped barplot comparing the wall-clock
     inference time across architectures for each benchmark
@@ -935,33 +1152,41 @@ def plot_benchmark_time(data_dir="data", output_dir="figures"):
         )
         df_mode = df_mode.sort_values("architecture")
 
-        colors = [
-            PALETTE_ABLATION.get(a, (0.5, 0.5, 0.5))
-            for a in df_mode["architecture"]
-        ]
         labels = [LEGEND_MAP.get(a, a) for a in df_mode["architecture"]]
+        colors = [
+            PALETTE_ABLATION.get(a, (0.5, 0.5, 0.5)) for a in df_mode["architecture"]
+        ]
 
+        time_col = (
+            "wall_time_s"
+            if "wall_time_s" in df_mode.columns
+            else "inference_time_s"
+        )
         fig, ax = plt.subplots(figsize=(9, 5))
-        bars = ax.barh(labels, df_mode["wall_time_s"], color=colors)
+        bars = ax.barh(labels, df_mode[time_col], color=colors)
 
-        for bar, val in zip(bars, df_mode["wall_time_s"]):
+        max_val = df_mode[time_col].max()
+        ax.set_xlim(right=max_val * 1.12 if max_val > 0 else 1.0)
+
+        for bar, val in zip(bars, df_mode[time_col]):
             ax.text(
-                bar.get_width() + 0.5,
+                bar.get_width() + (max_val * 0.015 if max_val > 0 else 0.5),
                 bar.get_y() + bar.get_height() / 2,
-                f"{val:.1f}s",
+                f"{val:.2f}",
                 va="center",
                 fontsize=10,
             )
 
-        mode_titles_es = {
-            "time_domain": "Dominio temporal",
-            "space_domain": "Dominio espacial",
-        }
-        mode_title = mode_titles_es.get(mode, mode.replace("_", " ").title())
+        title_mode = (
+            "en el dominio temporal" if mode == "time_domain" else "en el dominio espacial"
+        )
+        title_text = (
+            f"Comparativa de arquitecturas: tiempo de inferencia {title_mode}"
+        )
+
         ax.set_xlabel("Tiempo de ejecución [s]")
         ax.set_title(
-            f"Comparativa de arquitecturas: "
-            f"Tiempo de inferencia ({mode_title})",
+            title_text,
             pad=15,
             fontweight="bold",
         )
@@ -974,41 +1199,41 @@ def plot_benchmark_time(data_dir="data", output_dir="figures"):
                 output_dir,
                 f"metrics_inference_{mode}.png",
             ),
-            f"Inference Time ({mode_title})",
+            f"Inference Time ({mode})",
         )
         plt.close()
 
 
-def plot_emissions(data_dir="data", output_dir="figures"):
+def plot_emissions(data_dir="data", output_dir="figures/metrics"):
     """
-    Reads direct CodeCarbon emissions.csv rows and generates comparative
-    barplots of measured energy consumed (kWh) and CO2 emissions (gCO2eq).
+    Parses CodeCarbon emissions CSV file and generates barplots for
+    energy consumed (kWh) and CO2 emissions (gCO2eq) broken down by phase.
     """
-    emissions_file = os.path.join(data_dir, "emissions.csv")
-    if not os.path.exists(emissions_file):
-        print(f" [warn] CodeCarbon file not found: " f"{emissions_file}")
+    df = _load_metrics_csv("emissions.csv")
+    if df is None:
         return
 
-    df = pd.read_csv(emissions_file)
-
+    # Extract architecture and phase
     df["architecture"] = df["project_name"].apply(_extract_architecture)
     df["phase"] = df["project_name"].apply(_infer_emission_phase)
 
-    # Use only direct CodeCarbon measurements. Missing phases are not inferred.
+    # Filter known architectures and non-unknown phases
     df = df[
-        df["architecture"].isin(ARCH_ORDER)
-        & (df["phase"] != "unknown")
+        (df["architecture"].isin(ARCH_ORDER)) & (df["phase"] != "unknown")
     ]
 
     if df.empty:
-        print(" [warn] No usable direct emissions found in " "emissions.csv")
+        print(" [warn] No valid emissions data matching recognized architectures.")
         return
 
-    phase_order = [
-        "train",
-        "benchmark_time_domain",
-        "benchmark_space_domain",
-    ]
+    # Aggregate total energy and emissions per architecture and phase
+    agg = (
+        df.groupby(["architecture", "phase"])[["energy_consumed", "emissions"]]
+        .sum()
+        .reset_index()
+    )
+
+    phase_order = ["train", "benchmark_time_domain", "benchmark_space_domain"]
     phase_labels = {
         "train": "Entrenamiento",
         "benchmark_time_domain": "Benchmark temporal",
@@ -1019,36 +1244,31 @@ def plot_emissions(data_dir="data", output_dir="figures"):
         "benchmark_time_domain": (0.15, 0.50, 0.55),
         "benchmark_space_domain": (0.95, 0.52, 0.27),
     }
-    ordered_architectures = [
-        a for a in ARCH_ORDER if a in df["architecture"].values
-    ]
-    labels = [LEGEND_MAP.get(a, a) for a in ordered_architectures]
+
+    # Prepare pivot tables (Emissions in gCO2eq: kg * 1000)
+    agg["emissions_gco2"] = agg["emissions"] * 1000.0
 
     energy_by_phase = (
-        df.pivot_table(
-            index="architecture",
-            columns="phase",
-            values="energy_consumed",
-            aggfunc="sum",
-            fill_value=0.0,
-        )
-        .reindex(index=ordered_architectures, columns=phase_order)
+        agg.pivot(index="architecture", columns="phase", values="energy_consumed")
+        .reindex(ARCH_ORDER)
         .fillna(0.0)
     )
     emissions_by_phase = (
-        df.assign(emissions_gco2=df["emissions"] * 1000)
-        .pivot_table(
-            index="architecture",
-            columns="phase",
-            values="emissions_gco2",
-            aggfunc="sum",
-            fill_value=0.0,
-        )
-        .reindex(index=ordered_architectures, columns=phase_order)
+        agg.pivot(index="architecture", columns="phase", values="emissions_gco2")
+        .reindex(ARCH_ORDER)
         .fillna(0.0)
     )
 
-    # --- Plot 1: Energy consumed ---
+    # Ensure all phases exist in columns
+    for phase in phase_order:
+        if phase not in energy_by_phase.columns:
+            energy_by_phase[phase] = 0.0
+        if phase not in emissions_by_phase.columns:
+            emissions_by_phase[phase] = 0.0
+
+    labels = [LEGEND_MAP.get(a, a) for a in ARCH_ORDER]
+
+    # --- Plot 1: Energy consumption ---
     fig, ax = plt.subplots(figsize=(9, 5))
     left = np.zeros(len(energy_by_phase))
     for phase in phase_order:
@@ -1061,8 +1281,9 @@ def plot_emissions(data_dir="data", output_dir="figures"):
             label=phase_labels[phase],
         )
         left += values
+
     max_energy = energy_by_phase.sum(axis=1).max()
-    ax.set_xlim(right=max_energy * 1.16 if max_energy > 0 else 1.0)
+    ax.set_xlim(right=max_energy * 1.12 if max_energy > 0 else 1.0)
 
     for index, val in enumerate(energy_by_phase.sum(axis=1)):
         ax.text(
@@ -1075,7 +1296,7 @@ def plot_emissions(data_dir="data", output_dir="figures"):
 
     ax.set_xlabel("Energía consumida [kWh]")
     ax.set_title(
-        "Comparativa de arquitecturas: Consumo energético medido",
+        "Comparativa de arquitecturas: consumo energético",
         pad=15,
         fontweight="bold",
     )
@@ -1102,8 +1323,9 @@ def plot_emissions(data_dir="data", output_dir="figures"):
             label=phase_labels[phase],
         )
         left += values
+
     max_emissions = emissions_by_phase.sum(axis=1).max()
-    ax.set_xlim(right=max_emissions * 1.16 if max_emissions > 0 else 1.0)
+    ax.set_xlim(right=max_emissions * 1.12 if max_emissions > 0 else 1.0)
 
     for index, val in enumerate(emissions_by_phase.sum(axis=1)):
         ax.text(
@@ -1116,7 +1338,7 @@ def plot_emissions(data_dir="data", output_dir="figures"):
 
     ax.set_xlabel("Emisiones de CO₂ [gCO₂eq]")
     ax.set_title(
-        "Comparativa de arquitecturas: Huella de carbono medida",
+        "Comparativa de arquitecturas: huella de carbono",
         pad=15,
         fontweight="bold",
     )
@@ -1131,18 +1353,15 @@ def plot_emissions(data_dir="data", output_dir="figures"):
     plt.close()
 
 
-def plot_cv_results(data_dir="data", output_dir="figures"):
+def plot_cv_results(data_dir="data", output_dir="figures/metrics"):
     """
     Reads data/metrics_cv.csv and generates a barplot with
     error bars showing mean ± std validation MSE per
     architecture from K-Fold Cross-Validation.
     """
-    cv_file = os.path.join(data_dir, "metrics_cv.csv")
-    if not os.path.exists(cv_file):
-        print(f" [warn] CV metrics not found: {cv_file}")
+    df = _load_metrics_csv("metrics_cv.csv")
+    if df is None:
         return
-
-    df = pd.read_csv(cv_file)
     df = df.drop_duplicates(subset="architecture", keep="last")
     df = df[df["architecture"].isin(ARCH_ORDER)]
     df["architecture"] = pd.Categorical(
@@ -1153,33 +1372,36 @@ def plot_cv_results(data_dir="data", output_dir="figures"):
     df = df.sort_values("architecture")
 
     labels = [LEGEND_MAP.get(a, a) for a in df["architecture"]]
-    colors = [
-        PALETTE_ABLATION.get(a, (0.5, 0.5, 0.5)) for a in df["architecture"]
-    ]
+    colors = [PALETTE_ABLATION.get(a, (0.5, 0.5, 0.5)) for a in df["architecture"]]
+
+    mean_col = "mean_val_mse" if "mean_val_mse" in df.columns else "val_mse_mean"
+    std_col = "std_val_mse" if "std_val_mse" in df.columns else "val_mse_std"
 
     fig, ax = plt.subplots(figsize=(9, 5))
     bars = ax.barh(
         labels,
-        df["mean_val_mse"],
-        xerr=df["std_val_mse"],
+        df[mean_col],
+        xerr=df[std_col],
         color=colors,
-        capsize=5,
-        ecolor="gray",
+        capsize=4,
+        ecolor="black",
     )
 
-    for bar, mean, std in zip(bars, df["mean_val_mse"], df["std_val_mse"]):
+    max_val = (df[mean_col] + df[std_col]).max()
+    ax.set_xlim(left=0, right=max_val * 1.28 if max_val > 0 else 1.0)
+
+    for bar, mean_v, std_v in zip(bars, df[mean_col], df[std_col]):
         ax.text(
-            bar.get_width() + std + 0.0001,
+            mean_v + std_v + (max_val * 0.02),
             bar.get_y() + bar.get_height() / 2,
-            f"{mean:.6f} ± {std:.6f}",
+            f"{mean_v:.6f} ± {std_v:.6f}",
             va="center",
             fontsize=9,
         )
 
-    ax.set_xlabel("MSE de validación (media ± desv. típ.)")
+    ax.set_xlabel("Error cuadrático medio de validación cruzada (μ ± σ)")
     ax.set_title(
-        "Comparativa de arquitecturas: "
-        "Validación cruzada K-Fold",
+        "Comparativa de arquitecturas: validación cruzada 5-folds",
         pad=15,
         fontweight="bold",
     )
@@ -1196,16 +1418,38 @@ def plot_cv_results(data_dir="data", output_dir="figures"):
     plt.close()
 
 
-def plot_all_metrics(data_dir="data", output_dir="figures"):
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if str(v).lower() in ("yes", "true", "t", "y", "1"):
+        return True
+    elif str(v).lower() in ("no", "false", "f", "n", "0"):
+        return False
+    else:
+        raise argparse.ArgumentTypeError("Boolean value expected.")
+
+
+def plot_all_metrics(
+    data_dir="data",
+    output_dir="figures/metrics",
+    exclude=None,
+    architectures=None,
+    use_finetuned=True,
+):
     """
     Orchestrates all metrics visualization functions.
     """
     print("\n [metrics] Generating comparative metrics plots...")
-    plot_training_time(data_dir, output_dir)
-    plot_model_size(output_dir)
-    plot_benchmark_time(data_dir, output_dir)
-    plot_emissions(data_dir, output_dir)
-    plot_cv_results(data_dir, output_dir)
+    if not _is_excluded("training_time", exclude):
+        plot_training_time(data_dir, output_dir)
+    if not _is_excluded("model_size", exclude):
+        plot_model_size(output_dir)
+    if not _is_excluded("inference", exclude):
+        plot_benchmark_time(data_dir, output_dir)
+    if not _is_excluded("energy", exclude) and not _is_excluded("emissions", exclude):
+        plot_emissions(data_dir, output_dir)
+    if not _is_excluded("cv", exclude) and not _is_excluded("cross_validation", exclude):
+        plot_cv_results(data_dir, output_dir)
 
 
 # =============================================================================
@@ -1217,45 +1461,109 @@ if __name__ == "__main__":
     parser.add_argument(
         "--mode",
         type=str,
-        choices=["single", "ablation", "metrics"],
-        default="single",
+        choices=["single", "ablation", "metrics", "all"],
+        default="all",
         help=(
             "Select 'single' for a specific model report, "
-            "'ablation' for architecture comparison, or "
-            "'metrics' for training/inference/size barplots."
+            "'ablation' for architecture comparison, "
+            "'metrics' for training/inference/size barplots, or "
+            "'all' to generate all figures across all modes. Defaults to 'all'."
         ),
     )
 
     parser.add_argument(
+        "--architecture",
+        "--architectures",
         "--model_type",
-        type=str,
-        choices=["resnet", "linear", "mlp", "lstm", "tree"],
-        default="resnet",
-        help="Used in 'single' mode. Selects which architecture's data to plot.",
+        nargs="+",
+        default=None,
+        help=(
+            "Architecture(s) to process (e.g. --architecture resnet or "
+            "--architecture resnet mlp lstm). Defaults to all models."
+        ),
+    )
+
+    parser.add_argument(
+        "--use-finetuned",
+        "--use_finetuned",
+        "--use_finetune",
+        type=str2bool,
+        nargs="?",
+        const=True,
+        default=True,
+        help=(
+            "Whether to use fine-tuned model versions. Defaults to True. "
+            "Pass --use_finetune False to disable."
+        ),
+    )
+
+    parser.add_argument(
+        "--exclude",
+        "--skip-figures",
+        nargs="*",
+        default=[],
+        help=(
+            "List of figure keywords/names to EXCLUDE from generation (e.g. "
+            "--exclude cdf violin heatmap). Defaults to empty list (generates all figures)."
+        ),
     )
 
     args = parser.parse_args()
 
+    if args.architecture is None:
+        archs = ["resnet", "mlp", "lstm", "linear", "tree"]
+    else:
+        archs = [a.lower() for a in args.architecture]
+    use_ft = args.use_finetuned
+
     print("=" * 80)
-    print(f" ORBITA ANALYTICS ENGINE | MODE: {args.mode.upper()}")
+    print(
+        f" ORBITA ANALYTICS ENGINE | MODE: {args.mode.upper()} | "
+        f"ARCHS: {archs} | FINETUNED: {use_ft}"
+    )
     print("=" * 80)
 
     configure_style()
     os.makedirs("figures", exist_ok=True)
 
-    if args.mode == "single":
-        time_csv = f"data/benchmark_time_domain_{args.model_type}.csv"
-        space_csv = f"data/benchmark_space_domain_{args.model_type}.csv"
+    if args.mode in ["single", "all"]:
+        for m_type in archs:
+            time_csv = _find_benchmark_csv(
+                "time_domain", m_type, use_finetuned=use_ft
+            ) or f"data/benchmark_time_domain_{m_type}.csv"
+            space_csv = _find_benchmark_csv(
+                "space_domain", m_type, use_finetuned=use_ft
+            ) or f"data/benchmark_space_domain_{m_type}.csv"
 
-        plot_time_domain(time_csv)
-        plot_space_domain(space_csv)
+            out_dir = os.path.join("figures", "benchmarks", m_type)
+            plot_time_domain(
+                time_csv, output_dir=out_dir, exclude=args.exclude
+            )
+            plot_space_domain(
+                space_csv, output_dir=out_dir, exclude=args.exclude
+            )
 
-    elif args.mode == "ablation":
-        plot_ablation_time_domain()
-        plot_ablation_space_domain()
+    if args.mode in ["ablation", "all"]:
+        plot_ablation_time_domain(
+            output_dir="figures/ablation_global",
+            exclude=args.exclude,
+            architectures=archs,
+            use_finetuned=use_ft,
+        )
+        plot_ablation_space_domain(
+            output_dir="figures/ablation_global",
+            exclude=args.exclude,
+            architectures=archs,
+            use_finetuned=use_ft,
+        )
 
-    elif args.mode == "metrics":
-        plot_all_metrics()
+    if args.mode in ["metrics", "all"]:
+        plot_all_metrics(
+            output_dir="figures/metrics",
+            exclude=args.exclude,
+            architectures=archs,
+            use_finetuned=use_ft,
+        )
 
     print("=" * 80)
     print(" VISUALIZATION EXPORT COMPLETE.")

@@ -193,7 +193,17 @@ def run_cross_validation(
     print("=" * 80)
 
     if not os.path.exists(csv_file):
-        raise FileNotFoundError(f"Dataset not found: {csv_file}")
+        candidates = [
+            os.path.join("data", "datasets", "training", os.path.basename(csv_file)),
+            os.path.join("data", "datasets", os.path.basename(csv_file)),
+            os.path.join("data", os.path.basename(csv_file)),
+        ]
+        for c in candidates:
+            if os.path.exists(c):
+                csv_file = c
+                break
+        else:
+            raise FileNotFoundError(f"Dataset not found: {csv_file}")
 
     # Load and normalize the full dataset
     dataset = OrbitalDataset(csv_file)
@@ -288,8 +298,8 @@ def _log_cv_metrics(
         fold_losses (list[float]): Individual fold losses.
         total_time (float): Wall-clock time for all folds.
     """
-    os.makedirs("data", exist_ok=True)
-    metrics_file = "data/metrics_cv.csv"
+    os.makedirs("data/metrics", exist_ok=True)
+    metrics_file = "data/metrics/metrics_cv.csv"
     header = [
         "architecture",
         "k_folds",

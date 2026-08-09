@@ -95,6 +95,16 @@ echo [%date% %time%] START figures_metrics
 if errorlevel 1 goto :fail
 echo [%date% %time%] DONE figures_metrics
 
+echo [%date% %time%] START figures_resnet_ablation
+%PYTHON% src/plot_resnet_ablation_time.py --only-figures
+if errorlevel 1 goto :fail
+echo [%date% %time%] DONE figures_resnet_ablation
+
+echo [%date% %time%] START figures_regional_ablation
+%PYTHON% src/plot_expert_mesh.py
+if errorlevel 1 goto :fail
+echo [%date% %time%] DONE figures_regional_ablation
+
 REM =====================================================================
 REM 7. QUALITY GATES
 REM =====================================================================

@@ -35,7 +35,7 @@ from physics.oracle import (
 )
 
 
-def find_expert_system(sma, ecc, inc, target_model_type=None):
+def find_expert_system(sma, ecc, inc, target_model_type=None, use_finetuned=True):
     """
     Acts as the MoE Router. Scans the 'models' directory and dynamically
     selects the correct expert neural network based on the initial state.
@@ -114,9 +114,7 @@ def find_expert_system(sma, ecc, inc, target_model_type=None):
                 if effective_arch != target_model_type:
                     continue
 
-            volume = (
-                (alt_max - alt_min) * (ecc_max - ecc_min) * (inc_max - inc_min)
-            )
+            volume = (alt_max - alt_min) * (ecc_max - ecc_min) * (inc_max - inc_min)
             arch_score = arch_ranking.get(model_arch, 5)
 
             if volume < min_volume or (
@@ -126,21 +124,38 @@ def find_expert_system(sma, ecc, inc, target_model_type=None):
                 best_arch_score = arch_score
 
                 # 4. Domain matched! Reconstruct the pure dataset path
-                dataset_path = f"data/orbita_dataset_{domain_str}.csv"
+                dataset_candidates = [
+                    f"data/datasets/training/orbita_dataset_{domain_str}.csv",
+                    f"data/datasets/orbita_dataset_{domain_str}.csv",
+                    f"data/orbita_dataset_{domain_str}.csv",
+                ]
+                dataset_path = dataset_candidates[-1]
+                for candidate in dataset_candidates:
+                    if os.path.exists(candidate):
+                        dataset_path = candidate
+                        break
 
                 # Reconstruct the correct finetuned path dynamically
-                model_dir = os.path.dirname(base_model_path)
-                if model_arch:
-                    finetuned_path = (
-                        f"{model_dir}/orbita_predictor_{model_arch}"
-                        f"_{domain_str}_finetuned.pth"
-                    )
+                effective_arch = model_arch if model_arch else "resnet"
+                if effective_arch == "tree":
+                    finetuned_path = base_model_path
                 else:
-                    finetuned_path = (
-                        f"{model_dir}/orbita_predictor_{domain_str}_finetuned.pth"
+                    model_dir = os.path.dirname(base_model_path)
+                    if model_dir.endswith("/base") or model_dir.endswith("\\base"):
+                        finetuned_dir = os.path.join(
+                            os.path.dirname(model_dir), "finetuned"
+                        )
+                    else:
+                        finetuned_dir = os.path.join(
+                            "models", effective_arch, "finetuned"
+                        )
+
+                    finetuned_path = os.path.join(
+                        finetuned_dir,
+                        f"orbita_predictor_{effective_arch}_{domain_str}_finetuned.pth",
                     )
 
-                if os.path.exists(finetuned_path):
+                if use_finetuned and os.path.exists(finetuned_path):
                     best_model = (finetuned_path, dataset_path)
                 else:
                     best_model = (base_model_path, dataset_path)
@@ -190,9 +205,7 @@ def run_stress_test_simulation(
     time_steps = np.arange(0, max_tof + 1, step_size)
 
     try:
-        model_path, dataset_path = find_expert_system(
-            sma=sma_0, ecc=ecc_0, inc=inc_0
-        )
+        model_path, dataset_path = find_expert_system(sma=sma_0, ecc=ecc_0, inc=inc_0)
     except ValueError as e:
         print(f" [ERROR] Routing failure: {e}")
         return
@@ -208,9 +221,7 @@ def run_stress_test_simulation(
     oracle_calls = 0
     ai_calls = 0
 
-    print(
-        f"\n Simulating orbit over {len(time_steps) - 1} evaluation steps..."
-    )
+    print(f"\n Simulating orbit over {len(time_steps) - 1} evaluation steps...")
     print(f" Safety threshold: {uncertainty_threshold} meters\n")
     header = (
         f"{'Time (s)':<9} | {'Decision':<12} | "
@@ -252,9 +263,7 @@ def run_stress_test_simulation(
 
         # Apply dataset standardization
         norm_input = (raw_input - dataset.x_mean) / dataset.x_std
-        tensor_input = torch.tensor(norm_input, dtype=torch.float32).unsqueeze(
-            0
-        )
+        tensor_input = torch.tensor(norm_input, dtype=torch.float32).unsqueeze(0)
 
         # ---------------------------------------------------------------------
         # EUCLIDEAN MONTE CARLO DROPOUT (Uncertainty Cloud)
@@ -297,9 +306,7 @@ def run_stress_test_simulation(
         with torch.no_grad():
             for _ in range(num_samples):
                 pred_norm = model(tensor_input)
-                pred_mee = (
-                    pred_norm.numpy()[0] * dataset.y_std
-                ) + dataset.y_mean
+                pred_mee = (pred_norm.numpy()[0] * dataset.y_std) + dataset.y_mean
                 raw_mee_predictions.append(pred_mee)
 
                 mee_sample = mee_esther + pred_mee
@@ -339,9 +346,7 @@ def run_stress_test_simulation(
         # =====================================================================
         # TRUTH DETECTOR (Absolute Accumulated Error from T0)
         # =====================================================================
-        pos_truth, _ = get_ground_truth(
-            sma_0, ecc_0, inc_0, raan_0, aop_0, ta_0, tof
-        )
+        pos_truth, _ = get_ground_truth(sma_0, ecc_0, inc_0, raan_0, aop_0, ta_0, tof)
         absolute_error_meters = np.linalg.norm(pos_final - pos_truth)
 
         print(
@@ -354,9 +359,7 @@ def run_stress_test_simulation(
         # STATE UPDATE (Closing the loop)
         # =====================================================================
         updated_coe = eci_to_coe(MU, pos_final, vel_final)
-        curr_sma, curr_ecc, curr_inc, curr_raan, curr_aop, curr_ta = (
-            updated_coe
-        )
+        curr_sma, curr_ecc, curr_inc, curr_raan, curr_aop, curr_ta = updated_coe
         prev_tof = tof
 
     print("-" * 80)

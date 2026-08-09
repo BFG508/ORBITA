@@ -238,11 +238,15 @@ if __name__ == "__main__":
     )
     ecc_str = f"{mission_ecc_bounds[0]:.4f}-{mission_ecc_bounds[1]:.4f}"
     inc_str = (
-        f"{int(np.rad2deg(mission_inc_bounds[0]))}"
-        f"-{int(np.rad2deg(mission_inc_bounds[1]))}"
+        f"{np.rad2deg(mission_inc_bounds[0]):.2f}"
+        f"-{np.rad2deg(mission_inc_bounds[1]):.2f}"
     )
 
-    filename = f"data/orbita_dataset_{sma_str}_{ecc_str}_{inc_str}.csv"
+    output_dir = "data/datasets/training"
+    os.makedirs(output_dir, exist_ok=True)
+    filename = os.path.join(
+        output_dir, f"orbita_dataset_{sma_str}_{ecc_str}_{inc_str}.csv"
+    )
 
     # 3. Execute the generation
     generate_training_data(

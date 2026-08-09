@@ -6,7 +6,6 @@ numpy==2.4.3
 # --- Data Visualization ---
 matplotlib==3.10.8
 seaborn==0.13.2
-statsmodels==0.14.6
 
 # --- Machine Learning ---
 torch==2.11.0
@@ -15,5 +14,4 @@ scikit-learn==1.8.0
 codecarbon==3.2.6
 
 # --- Development & Testing ---
-jupyterlab==4.5.6
 pytest==9.0.3

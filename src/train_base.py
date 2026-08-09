@@ -72,8 +72,9 @@ def _log_training_metrics(model_type, training_time, val_loss, model_path):
         val_loss (float): Best validation MSE loss achieved.
         model_path (str): Path to saved model file.
     """
-    os.makedirs("data", exist_ok=True)
-    metrics_file = "data/metrics_train.csv"
+    metrics_dir = os.path.join("data", "metrics")
+    os.makedirs(metrics_dir, exist_ok=True)
+    metrics_file = os.path.join(metrics_dir, "metrics_train.csv")
     header = [
         "architecture",
         "training_time_s",
@@ -137,6 +138,13 @@ def train_model(
     base_name = os.path.basename(csv_file)
     name_without_ext = os.path.splitext(base_name)[0]
 
+    if model_dir == "models" or model_dir == f"models/{model_type}":
+        if model_type == "tree":
+            model_dir = os.path.join("models", "tree")
+        else:
+            model_dir = os.path.join("models", model_type, "base")
+    os.makedirs(model_dir, exist_ok=True)
+
     # Differentiate saved weights by architecture type to avoid
     # overwriting. Tree models use .joblib instead of .pth.
     target_prefix = f"predictor_{model_type}"
@@ -156,7 +164,7 @@ def train_model(
         # analytics.  If the row already exists, _log_training_metrics
         # will simply append a duplicate that the visualiser
         # de-duplicates automatically (keep="last").
-        metrics_file = "data/metrics_train.csv"
+        metrics_file = os.path.join("data", "metrics", "metrics_train.csv")
         already_logged = False
         if os.path.exists(metrics_file):
             with open(metrics_file, "r") as mf:
@@ -252,10 +260,16 @@ def train_model(
         os.makedirs(model_dir, exist_ok=True)
         joblib.dump(model, model_save_path)
 
+        log_dir = f"logs/training/tree/{name_without_ext}_tree"
+        writer = SummaryWriter(log_dir=log_dir)
+        writer.add_scalar("Loss/val", val_mse, 1)
+        writer.close()
+
         print("-" * 80)
         print(f" Tree training complete in {elapsed:.2f}s.")
         print(f" Validation MSE : {val_mse:.8f}")
         print(f" Model saved to : {model_save_path}")
+        print(f" TensorBoard logs: {log_dir}")
         print("-" * 80)
         tracker.stop()
         _log_training_metrics(model_type, elapsed, val_mse, model_save_path)
@@ -279,7 +293,7 @@ def train_model(
     os.makedirs(model_dir, exist_ok=True)
 
     # 4. TensorBoard logging
-    log_dir = f"logs/{name_without_ext}_{model_type}"
+    log_dir = f"logs/training/{model_type}/{name_without_ext}_{model_type}"
     writer = SummaryWriter(log_dir=log_dir)
     print(f" [info] TensorBoard logs: {log_dir}\n")
 
