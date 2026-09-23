@@ -4,7 +4,13 @@ import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "src")))
 
-from visualize_benchmark import _arch_cdf_phrase, _arch_gen_phrase, _arch_name_es, ARCH_ORDER
+from visualize_benchmark import (
+    _arch_cdf_phrase,
+    _arch_gen_phrase,
+    _arch_name_es,
+    _arch_violin_phrase,
+    ARCH_ORDER,
+)
 
 
 class TestVisualizationFormatting(unittest.TestCase):
@@ -55,6 +61,29 @@ class TestVisualizationFormatting(unittest.TestCase):
         self.assertEqual(
             _arch_cdf_phrase("tree"),
             "Función de distribución acumulada del árbol de decisión de error espacial",
+        )
+
+    def test_arch_violin_phrase_preposition(self):
+        """Verify Spanish violin plot title phrases with 'para' vs 'para el' for all 5 architectures."""
+        self.assertEqual(
+            _arch_violin_phrase("resnet"),
+            "Distribución del error radial absoluto por régimen LEO para ResNet",
+        )
+        self.assertEqual(
+            _arch_violin_phrase("mlp"),
+            "Distribución del error radial absoluto por régimen LEO para MLP",
+        )
+        self.assertEqual(
+            _arch_violin_phrase("lstm"),
+            "Distribución del error radial absoluto por régimen LEO para LSTM",
+        )
+        self.assertEqual(
+            _arch_violin_phrase("linear"),
+            "Distribución del error radial absoluto por régimen LEO para el modelo lineal",
+        )
+        self.assertEqual(
+            _arch_violin_phrase("tree"),
+            "Distribución del error radial absoluto por régimen LEO para el árbol de decisión",
         )
 
     def test_arch_order_completeness(self):

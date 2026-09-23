@@ -32,12 +32,13 @@ from config import (
     TOTAL_ECC_BOUNDS,
     TOTAL_INC_BOUNDS,
     TOTAL_SMA_BOUNDS,
+    format_domain_suffix,
 )
-from physics.oracle import R_EQ
 from physics.residuals import compute_mee_residuals
 
 
 def _generate_single_sample(
+
     _,
     sma_bounds,
     ecc_bounds,
@@ -232,21 +233,13 @@ if __name__ == "__main__":
     mission_tof_bounds = (0.0, MAX_TOF_SECONDS)
 
     # 2. Dynamic filename generation
-    sma_str = (
-        f"{int((mission_sma_bounds[0] - R_EQ) / 1e3)}"
-        f"-{int((mission_sma_bounds[1] - R_EQ) / 1e3)}"
-    )
-    ecc_str = f"{mission_ecc_bounds[0]:.4f}-{mission_ecc_bounds[1]:.4f}"
-    inc_str = (
-        f"{np.rad2deg(mission_inc_bounds[0]):.2f}"
-        f"-{np.rad2deg(mission_inc_bounds[1]):.2f}"
+    suffix = format_domain_suffix(
+        mission_sma_bounds, mission_ecc_bounds, mission_inc_bounds
     )
 
     output_dir = "data/datasets/training"
     os.makedirs(output_dir, exist_ok=True)
-    filename = os.path.join(
-        output_dir, f"orbita_dataset_{sma_str}_{ecc_str}_{inc_str}.csv"
-    )
+    filename = os.path.join(output_dir, f"orbita_dataset_{suffix}.csv")
 
     # 3. Execute the generation
     generate_training_data(

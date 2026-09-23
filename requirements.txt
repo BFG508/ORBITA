@@ -15,3 +15,5 @@ codecarbon==3.2.6
 
 # --- Development & Testing ---
 pytest==9.0.3
+flake8==7.3.0
+

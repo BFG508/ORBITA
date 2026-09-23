@@ -289,6 +289,7 @@ def run_time_domain_benchmark(
     model_cache=None,
     verbose=True,
     use_finetuned=True,
+    global_only=True,
 ):
     """
     Execute the secular degradation test for a specific target orbit.
@@ -307,6 +308,7 @@ def run_time_domain_benchmark(
         max_tof (float): Maximum Time of Flight for the simulation [s].
         case_name (str): Identifier for the output logs. Defaults to "default".
         model_type (str): The architecture variant to test.
+        global_only (bool): If True, forces routing to the global model.
 
     Returns:
         tuple: A tuple containing:
@@ -340,7 +342,9 @@ def run_time_domain_benchmark(
             inc=inc,
             target_model_type=model_type,
             use_finetuned=use_finetuned,
+            global_only=global_only,
         )
+
     except ValueError as e:
         if verbose:
             print(f" [error] Routing failure: {e}")
@@ -456,6 +460,7 @@ def run_space_domain_benchmark(
     model_type=None,
     output_filename=None,
     use_finetuned=True,
+    global_only=True,
 ):
     """
     Executes the global Monte Carlo test across the entire LEO parameter space.
@@ -470,6 +475,7 @@ def run_space_domain_benchmark(
         model_type (str): The architecture variant to benchmark.
         output_filename (str): Optional output CSV path. Defaults to the
             canonical architecture-specific benchmark file.
+        global_only (bool): If True, forces routing to the global model.
     """
     model_str = model_type.upper() if model_type else "BEST AVAILABLE"
     print("\n" + "=" * 80)
@@ -527,6 +533,7 @@ def run_space_domain_benchmark(
             dt,
             model_type,
             use_finetuned,
+            global_only,
         )
         for i in range(num_samples)
     ]
@@ -627,7 +634,7 @@ def generate_random_test_cases(num_cases, max_tof=4 * 3600):
 
 
 def _worker_time_case(item):
-    case, model_type, use_finetuned = item
+    case, model_type, use_finetuned, global_only = item
     results, t_oracle, t_ai = run_time_domain_benchmark(
         sma=case["sma"],
         ecc=case["ecc"],
@@ -641,15 +648,21 @@ def _worker_time_case(item):
         model_cache=None,
         verbose=False,
         use_finetuned=use_finetuned,
+        global_only=global_only,
     )
     return results, t_oracle, t_ai
 
 
 def _worker_space_sample(item):
-    sma, ecc, inc, raan, aop, ta, dt, model_type, use_finetuned = item
+    sma, ecc, inc, raan, aop, ta, dt, model_type, use_finetuned, global_only = item
     try:
         expert_model_path, dataset_path = find_expert_system(
-            sma, ecc, inc, target_model_type=model_type, use_finetuned=use_finetuned
+            sma,
+            ecc,
+            inc,
+            target_model_type=model_type,
+            use_finetuned=use_finetuned,
+            global_only=global_only,
         )
     except ValueError:
         return None
@@ -675,7 +688,12 @@ def _worker_space_sample(item):
 
 
 def run_time_domain_batch(
-    test_cases, output_filename=None, model_type=None, verbose=True, use_finetuned=True
+    test_cases,
+    output_filename=None,
+    model_type=None,
+    verbose=True,
+    use_finetuned=True,
+    global_only=True,
 ):
     """
     Manage the execution of multiple time-domain benchmark cases.
@@ -688,6 +706,7 @@ def run_time_domain_batch(
         test_cases (list[dict]): A list of dictionaries containing the orbital parameters.
         output_filename (str, optional): The target file path for the unified CSV output.
         model_type (str): The architecture variant to test.
+        global_only (bool): If True, forces routing to the global model.
     """
     if output_filename is None:
         model_str = model_type if model_type else "best"
@@ -711,7 +730,8 @@ def run_time_domain_batch(
         # Write the master header including the Case_ID for downstream sorting
         writer.writerow(["Case_ID", "Time_s", "Radial_m", "InTrack_m", "CrossTrack_m"])
 
-        items = [(c, model_type, use_finetuned) for c in test_cases]
+        items = [(c, model_type, use_finetuned, global_only) for c in test_cases]
+
         num_workers = min(os.cpu_count() or 4, 8)
         with ProcessPoolExecutor(max_workers=num_workers) as executor:
             for results, t_oracle, t_ai in executor.map(

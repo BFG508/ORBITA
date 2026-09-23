@@ -17,9 +17,8 @@ Description:
 
 import argparse
 
-import numpy as np
-
 from config import (
+
     AOP_BOUNDS,
     MAX_TOF_SECONDS,
     MIN_SAFE_PERIGEE,
@@ -29,13 +28,15 @@ from config import (
     TOTAL_ECC_BOUNDS,
     TOTAL_INC_BOUNDS,
     TOTAL_SMA_BOUNDS,
+    format_domain_suffix,
 )
+
 from generate_base_dataset import generate_training_data
-from physics.oracle import R_EQ
 from train_base import train_model
 
 
 def domain_can_contain_safe_orbit(sma_bounds, ecc_bounds):
+
     """
     Checks whether a grid cell contains at least one orbit above the minimum
     safe perigee. If the best-case corner is invalid, random generation would
@@ -102,18 +103,11 @@ def build_expert_grid(
         expert_sma_max = expert_sma_min + sma_step
         expert_sma_bounds = (expert_sma_min, expert_sma_max)
 
-        # Convert to km for clean file naming
-        alt_min_km = int((expert_sma_min - R_EQ) / 1e3)
-        alt_max_km = int((expert_sma_max - R_EQ) / 1e3)
-        sma_str = f"{alt_min_km}-{alt_max_km}"
-
         # --- MIDDLE LOOP: Traverse the Eccentricity (Shape) ---
         for j in range(ecc_splits):
             expert_ecc_min = ecc_min + (j * ecc_step)
             expert_ecc_max = expert_ecc_min + ecc_step
             expert_ecc_bounds = (expert_ecc_min, expert_ecc_max)
-
-            ecc_str = f"{expert_ecc_min:.4f}-{expert_ecc_max:.4f}"
 
             # --- INNER LOOP: Traverse the Inclination (Tilt) ---
             for k in range(inc_splits):
@@ -121,36 +115,31 @@ def build_expert_grid(
                 expert_inc_max = expert_inc_min + inc_step
                 expert_inc_bounds = (expert_inc_min, expert_inc_max)
 
-                deg_min = np.degrees(expert_inc_min)
-                deg_max = np.degrees(expert_inc_max)
-                inc_str = f"{deg_min:.2f}-{deg_max:.2f}"
-
-                csv_filename = (
-                    f"data/orbita_dataset_{sma_str}_{ecc_str}_{inc_str}.csv"
+                domain_str = format_domain_suffix(
+                    expert_sma_bounds, expert_ecc_bounds, expert_inc_bounds
                 )
+
+                csv_filename = f"data/orbita_dataset_{domain_str}.csv"
 
                 import os
 
                 if model_type == "tree":
                     model_filename = (
-                        f"models/tree/orbita_predictor_tree_"
-                        f"{sma_str}_{ecc_str}_{inc_str}.joblib"
+                        f"models/tree/orbita_predictor_tree_{domain_str}.joblib"
                     )
                 else:
                     model_filename = (
                         f"models/{model_type}/base/orbita_predictor_{model_type}"
-                        f"_{sma_str}_{ecc_str}_{inc_str}.pth"
+                        f"_{domain_str}.pth"
                     )
 
                 print("\n" + "=" * 75)
                 print(f" PROCESSING EXPERT {model_counter}/{total_models}")
-                print(
-                    f" Domain: Alt [{alt_min_km}-{alt_max_km} km] | "
-                    f"Ecc [{ecc_str}] | Inc [{deg_min}-{deg_max} deg]"
-                )
+                print(f" Domain: {domain_str}")
                 print("=" * 75)
 
                 try:
+
                     if not domain_can_contain_safe_orbit(
                         expert_sma_bounds, expert_ecc_bounds
                     ):

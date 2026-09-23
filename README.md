@@ -24,7 +24,8 @@ Unlike its predecessor ESTHER, which was developed in MATLAB, ORBITA is built en
 * **Green AI**: `CodeCarbon` (automated energy consumption and CO₂ emissions tracking per architecture).
 * **Training Diagnostics**: `TensorBoard` (real-time loss/LR tracking and ablation study comparison).
 * **Visualization & Analytics**: `Matplotlib` and `Seaborn` (CDF analysis, RIC error heatmaps, and comparative barplots for training time, model size, inference latency, energy, and cross-validation).
-* **Testing**: `pytest` (88 automated tests covering coordinate transforms, architectures, residuals, configuration, visualization, audit, and naming standards).
+* **Testing**: `pytest` (91 automated tests covering coordinate transforms, architectures, residuals, configuration, visualization, audit, and naming standards).
+
 
 ## 📂 Repository Structure
 * `/data` - Standardized workspace datasets, benchmark results, and metrics:

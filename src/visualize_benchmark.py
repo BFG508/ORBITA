@@ -153,6 +153,21 @@ def _arch_cdf_phrase(arch):
     return f"Función de distribución acumulada de {arch} de error espacial"
 
 
+def _arch_violin_phrase(arch):
+    arch = str(arch).lower()
+    if arch == "resnet":
+        return "Distribución del error radial absoluto por régimen LEO para ResNet"
+    elif arch == "linear":
+        return "Distribución del error radial absoluto por régimen LEO para el modelo lineal"
+    elif arch == "tree":
+        return "Distribución del error radial absoluto por régimen LEO para el árbol de decisión"
+    elif arch == "mlp":
+        return "Distribución del error radial absoluto por régimen LEO para MLP"
+    elif arch == "lstm":
+        return "Distribución del error radial absoluto por régimen LEO para LSTM"
+    return f"Distribución del error radial absoluto por régimen LEO para {arch}"
+
+
 # =============================================================================
 # SINGLE MODEL VISUALIZATION (STANDARD MODE)
 # =============================================================================
@@ -580,7 +595,7 @@ def plot_regime_violin(df, output_filename="figures/plot_space_domain_violin.png
     )
 
     plt.title(
-        f"Distribución del error radial absoluto por régimen LEO ({_arch_name_es(arch)})",
+        _arch_violin_phrase(arch),
         pad=15,
         fontweight="bold",
     )
@@ -1283,7 +1298,7 @@ def plot_emissions(data_dir="data", output_dir="figures/metrics"):
         left += values
 
     max_energy = energy_by_phase.sum(axis=1).max()
-    ax.set_xlim(right=max_energy * 1.12 if max_energy > 0 else 1.0)
+    ax.set_xlim(right=max_energy * 1.14 if max_energy > 0 else 1.0)
 
     for index, val in enumerate(energy_by_phase.sum(axis=1)):
         ax.text(

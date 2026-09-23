@@ -34,11 +34,11 @@ ECCENTRICITY_BINS = (
 INCLINATION_BINS_DEG = ((0, 45), (45, 90))
 
 DATASET_RE = re.compile(
-    r"orbita_dataset_(\d+-\d+)_(\d+\.\d+-\d+\.\d+)_(\d+-\d+)\.csv$"
+    r"orbita_dataset_(\d+-\d+)_(\d+\.\d+-\d+\.\d+)_(\d+\.\d+-\d+\.\d+|\d+-\d+)\.csv$"
 )
 MODEL_RE = re.compile(
     r"orbita_predictor_(resnet|mlp|lstm|linear|tree)_"
-    r"(\d+-\d+)_(\d+\.\d+-\d+\.\d+)_(\d+-\d+)"
+    r"(\d+-\d+)_(\d+\.\d+-\d+\.\d+)_(\d+\.\d+-\d+\.\d+|\d+-\d+)"
     r"(_finetuned)?\.(pth|joblib)$"
 )
 
@@ -68,7 +68,7 @@ def _expected_valid_grid_cells():
                 key = (
                     _range_label(altitude),
                     _range_label(eccentricity, precision=4),
-                    _range_label(inclination),
+                    _range_label(inclination, precision=2),
                 )
                 if _cell_is_physically_valid(altitude, eccentricity):
                     valid.append(key)
@@ -92,13 +92,16 @@ def _discover_grid_datasets(root):
             if not match:
                 continue
             key = match.groups()
-            if key != ("300-2000", "0.0000-0.1000", "0-90"):
+            g_key1 = ("300-2000", "0.0000-0.1000", "0.00-90.00")
+            g_key2 = ("300-2000", "0.0000-0.1000", "0-90")
+            if key not in [g_key1, g_key2]:
                 keys.add(key)
     return keys
 
 
 def _discover_models(root):
     """Returns discovered model and fine-tuned model keys."""
+
     base = set()
     fine_tuned = set()
     for path in (root / "models").glob("**/*"):
@@ -239,26 +242,41 @@ def main():
     print("=" * 80)
 
     print("\nGlobal models and CV:")
-    global_dataset = _resolve_file(root, "data/orbita_dataset_300-2000_0.0000-0.1000_0-90.csv")
+    g_ds1 = "data/datasets/training/orbita_dataset_300-2000_0.0000-0.1000_0.00-90.00.csv"
+    g_ds2 = "data/orbita_dataset_300-2000_0.0000-0.1000_0.00-90.00.csv"
+    g_ds3 = "data/orbita_dataset_300-2000_0.0000-0.1000_0-90.csv"
+    global_dataset = _resolve_file(root, g_ds1)
+    if not global_dataset.exists():
+        global_dataset = _resolve_file(root, g_ds2)
+    if not global_dataset.exists():
+        global_dataset = _resolve_file(root, g_ds3)
     print(f"  global dataset: {_exists(global_dataset)}")
     for architecture in ARCHITECTURES:
         extension = "joblib" if architecture == "tree" else "pth"
-        model_filename = (
+        fn_new = (
+            f"orbita_predictor_{architecture}_"
+            f"300-2000_0.0000-0.1000_0.00-90.00.{extension}"
+        )
+        fn_old = (
             f"orbita_predictor_{architecture}_"
             f"300-2000_0.0000-0.1000_0-90.{extension}"
         )
         model_candidates = [
-            root / "models" / architecture / "base" / model_filename,
-            root / "models" / architecture / model_filename,
-            root / "models" / model_filename,
+            root / "models" / architecture / "base" / fn_new,
+            root / "models" / architecture / fn_new,
+            root / "models" / fn_new,
+            root / "models" / architecture / "base" / fn_old,
+            root / "models" / architecture / fn_old,
+            root / "models" / fn_old,
         ]
-        model_path = model_candidates[-1]
+        model_path = model_candidates[0]
         for mc in model_candidates:
             if mc.exists():
                 model_path = mc
                 break
 
         print(f"  {architecture:>6} model: {_exists(model_path)}")
+
         if not model_path.exists():
             failures.append(str(model_path.relative_to(root)))
 

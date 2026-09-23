@@ -35,7 +35,9 @@ from physics.oracle import (
 )
 
 
-def find_expert_system(sma, ecc, inc, target_model_type=None, use_finetuned=True):
+def find_expert_system(
+    sma, ecc, inc, target_model_type=None, use_finetuned=True, global_only=False
+):
     """
     Acts as the MoE Router. Scans the 'models' directory and dynamically
     selects the correct expert neural network based on the initial state.
@@ -47,6 +49,9 @@ def find_expert_system(sma, ecc, inc, target_model_type=None, use_finetuned=True
         ecc (float): Eccentricity [-].
         inc (float): Inclination [rad].
         target_model_type (str, optional): The specific architecture to use.
+        use_finetuned (bool): Whether to look for fine-tuned expert weights.
+        global_only (bool): If True, restricts selection exclusively to the
+            global LEO model (spanning 300-2000 km, ecc 0-0.1, inc 0-90 deg).
 
     Returns:
         tuple: (model_path, dataset_path) for the selected expert.
@@ -102,14 +107,26 @@ def find_expert_system(sma, ecc, inc, target_model_type=None, use_finetuned=True
         ecc_min, ecc_max = map(float, ecc_str.split("-"))
         inc_min, inc_max = map(float, inc_str.split("-"))
 
+        is_global = (
+            alt_min <= 300.0
+            and alt_max >= 2000.0
+            and ecc_min <= 0.0
+            and ecc_max >= 0.1
+            and inc_min <= 0.0
+            and inc_max >= 90.0
+        )
+
+        if global_only and not is_global:
+            continue
+
         # 3. Check if the orbit falls within this expert's domain
         if (
             (alt_min <= alt_km <= alt_max)
             and (ecc_min <= ecc <= ecc_max)
             and (inc_min <= inc_deg <= inc_max)
         ):
-
             if target_model_type is not None:
+
                 effective_arch = model_arch if model_arch else "resnet"
                 if effective_arch != target_model_type:
                     continue

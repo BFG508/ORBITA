@@ -96,7 +96,7 @@ def region_for(coe):
     for path in sorted(
         (ROOT / "models" / "resnet").glob("**/*.pth")
     ):
-        if path.name.endswith("_finetuned.pth") or "300-2000_0.0000-0.1000_0-90" in path.name:
+        if path.name.endswith("_finetuned.pth") or "300-2000_0.0000-0.1000" in path.name:
             continue
         tokens = path.stem.replace("orbita_predictor_resnet_", "").split("_")
         if len(tokens) != 3:
@@ -108,32 +108,31 @@ def region_for(coe):
 
 
 def resources():
-    global_model_path = (
-        ROOT
-        / "models"
-        / "resnet"
-        / "base"
-        / "orbita_predictor_resnet_300-2000_0.0000-0.1000_0-90.pth"
-    )
-    if not global_model_path.exists():
-        global_model_path = (
-            ROOT
-            / "models"
-            / "resnet"
-            / "orbita_predictor_resnet_300-2000_0.0000-0.1000_0-90.pth"
-        )
+    g_fn1 = "orbita_predictor_resnet_300-2000_0.0000-0.1000_0.00-90.00.pth"
+    g_fn2 = "orbita_predictor_resnet_300-2000_0.0000-0.1000_0-90.pth"
+    global_model_candidates = [
+        ROOT / "models" / "resnet" / "base" / g_fn1,
+        ROOT / "models" / "resnet" / g_fn1,
+        ROOT / "models" / "resnet" / "base" / g_fn2,
+    ]
+    global_model_path = global_model_candidates[0]
+    for gmc in global_model_candidates:
+        if gmc.exists():
+            global_model_path = gmc
+            break
 
-    global_data_path = (
-        ROOT
-        / "data"
-        / "datasets"
-        / "training"
-        / "orbita_dataset_300-2000_0.0000-0.1000_0-90.csv"
-    )
-    if not global_data_path.exists():
-        global_data_path = (
-            ROOT / "data" / "orbita_dataset_300-2000_0.0000-0.1000_0-90.csv"
-        )
+    d_fn1 = "orbita_dataset_300-2000_0.0000-0.1000_0.00-90.00.csv"
+    d_fn2 = "orbita_dataset_300-2000_0.0000-0.1000_0-90.csv"
+    global_data_candidates = [
+        ROOT / "data" / "datasets" / "training" / d_fn1,
+        ROOT / "data" / d_fn1,
+        ROOT / "data" / "datasets" / "training" / d_fn2,
+    ]
+    global_data_path = global_data_candidates[0]
+    for gdc in global_data_candidates:
+        if gdc.exists():
+            global_data_path = gdc
+            break
 
     global_model, global_data = load_model(global_model_path, global_data_path)
 
@@ -145,10 +144,11 @@ def resources():
         if len(tokens) != 3:
             continue
         region = "_".join(tokens)
-        if region == "300-2000_0.0000-0.1000_0-90":
+        if "300-2000_0.0000-0.1000" in region:
             continue
 
         data = ROOT / "data" / "datasets" / "training" / f"orbita_dataset_{region}.csv"
+
         if not data.exists():
             data = ROOT / "data" / f"orbita_dataset_{region}.csv"
 

@@ -253,13 +253,13 @@ def fine_tune_model(
 # =============================================================================
 if __name__ == "__main__":
     target_base_model = (
-        "models/orbita_predictor_resnet_300-2000_0.0000-0.1000_0-90.pth"
+        "models/orbita_predictor_resnet_300-2000_0.0000-0.1000_0.00-90.00.pth"
     )
     target_finetune_data = (
-        "data/orbita_finetune_resnet_300-2000_0.0000-0.1000_0-90.csv"
+        "data/orbita_finetune_resnet_300-2000_0.0000-0.1000_0.00-90.00.csv"
     )
-
     fine_tune_model(
+
         base_model_path=target_base_model,
         fine_tune_csv=target_finetune_data,
         epochs=50,  # Accelerated cycle limit

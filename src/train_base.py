@@ -405,6 +405,8 @@ def train_model(
 # =============================================================================
 # EXECUTION BLOCK
 # =============================================================================
+from config import get_global_dataset_filename
+
 if __name__ == "__main__":
     # Setup argparse for Ablation Study execution
     parser = argparse.ArgumentParser(description="ORBITA Model Training Suite")
@@ -412,11 +414,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dataset",
         type=str,
-        default="data/orbita_dataset_300-2000_0.0000-0.1000_0-90.csv",
+        default=get_global_dataset_filename(),
         help="Path to the generated training dataset.",
     )
-
     parser.add_argument(
+
         "--model_type",
         type=str,
         choices=["resnet", "linear", "mlp", "lstm", "tree"],

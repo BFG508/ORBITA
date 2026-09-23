@@ -28,6 +28,8 @@ import torch.nn as nn
 import torch.optim as optim
 from sklearn.model_selection import KFold
 
+from config import get_global_dataset_filename
+
 from ml.architecture import (
     LinearBaseline,
     LSTMPredictor,
@@ -345,11 +347,11 @@ if __name__ == "__main__":
     parser.add_argument(
         "--dataset",
         type=str,
-        default=("data/orbita_dataset" "_300-2000_0.0000-0.1000_0-90.csv"),
+        default=get_global_dataset_filename(),
         help="Path to the training dataset CSV.",
     )
-
     parser.add_argument(
+
         "--model_type",
         type=str,
         choices=[

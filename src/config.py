@@ -103,3 +103,56 @@ TIME_DOMAIN_TEST_CASES = 10_000
 
 # Number of randomized orbits for space-domain Monte Carlo generalization tests
 SPACE_DOMAIN_SAMPLES = 100_000
+
+
+# =============================================================================
+# HELPER CONVENTIONS
+# =============================================================================
+
+def format_domain_suffix(sma_bounds, ecc_bounds, inc_bounds):
+    """
+    Formats orbital domain bounds into the standardized string representation:
+    - SMA: integer altitude in km, e.g., '300-2000'
+    - ECC: 4 decimal places, e.g., '0.0000-0.1000'
+    - INC: degrees with 2 decimal places, e.g., '0.00-90.00'
+
+    Args:
+        sma_bounds (tuple): (min_sma, max_sma) in meters.
+        ecc_bounds (tuple): (min_ecc, max_ecc).
+        inc_bounds (tuple): (min_inc, max_inc) in radians or degrees.
+
+    Returns:
+        str: Standardized domain string suffix.
+    """
+    alt_min_km = int((sma_bounds[0] - R_EQ) / 1e3)
+    alt_max_km = int((sma_bounds[1] - R_EQ) / 1e3)
+    sma_str = f"{alt_min_km}-{alt_max_km}"
+    ecc_str = f"{ecc_bounds[0]:.4f}-{ecc_bounds[1]:.4f}"
+
+    inc_min = inc_bounds[0]
+    inc_max = inc_bounds[1]
+    # Convert to degrees if provided in radians (values <= 2*pi)
+    deg_min = np.degrees(inc_min) if inc_min <= 2 * np.pi else inc_min
+    deg_max = np.degrees(inc_max) if inc_max <= 2 * np.pi else inc_max
+    inc_str = f"{deg_min:.2f}-{deg_max:.2f}"
+
+    return f"{sma_str}_{ecc_str}_{inc_str}"
+
+
+def get_global_dataset_filename():
+    """Returns canonical file path for the global dataset."""
+    suffix = format_domain_suffix(TOTAL_SMA_BOUNDS, TOTAL_ECC_BOUNDS, TOTAL_INC_BOUNDS)
+    return f"data/datasets/training/orbita_dataset_{suffix}.csv"
+
+
+def get_global_model_filename(architecture):
+    """Returns canonical file path for the global model of a given architecture."""
+    suffix = format_domain_suffix(
+        TOTAL_SMA_BOUNDS, TOTAL_ECC_BOUNDS, TOTAL_INC_BOUNDS
+    )
+    if architecture == "tree":
+        return f"models/tree/orbita_predictor_tree_{suffix}.joblib"
+    return (
+        f"models/{architecture}/base/orbita_predictor_"
+        f"{architecture}_{suffix}.pth"
+    )
